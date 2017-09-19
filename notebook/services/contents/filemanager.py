@@ -3,10 +3,13 @@
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
 
-
+from datetime import datetime
+import errno
 import io
 import os
 import shutil
+import stat
+import sys
 import warnings
 import mimetypes
 import nbformat
@@ -16,17 +19,24 @@ from tornado import web
 from .filecheckpoints import FileCheckpoints
 from .fileio import FileManagerMixin
 from .manager import ContentsManager
-
+from ...utils import exists
 
 from ipython_genutils.importstring import import_item
-from traitlets import Any, Unicode, Bool, TraitError
+from traitlets import Any, Unicode, Bool, TraitError, observe, default, validate
 from ipython_genutils.py3compat import getcwd, string_types
-from . import tz
+
+from notebook import _tz as tz
 from notebook.utils import (
-    is_hidden,
+    is_hidden, is_file_hidden,
     to_api_path,
-    same_file,
 )
+from notebook.base.handlers import AuthenticatedFileHandler
+
+try:
+    from os.path import samefile
+except ImportError:
+    # windows + py2
+    from notebook.utils import samefile_simple as samefile
 
 _script_exporter = None
 
@@ -59,14 +69,17 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
 
     root_dir = Unicode(config=True)
 
-    def _root_dir_default(self):
+    @default('root_dir')
+    def _default_root_dir(self):
         try:
             return self.parent.notebook_dir
         except AttributeError:
             return getcwd()
 
     save_script = Bool(False, config=True, help='DEPRECATED, use post_save_hook. Will be removed in Notebook 5.0')
-    def _save_script_changed(self):
+
+    @observe('save_script')
+    def _update_save_script(self):
         self.log.warning("""
         `--script` is deprecated and will be removed in notebook 5.0.
 
@@ -84,7 +97,7 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
 
         self.post_save_hook = _post_save_script
 
-    post_save_hook = Any(None, config=True,
+    post_save_hook = Any(None, config=True, allow_none=True,
         help="""Python callable or importstring thereof
 
         to be called on the path of a file just saved.
@@ -101,12 +114,15 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
         - contents_manager: this ContentsManager instance
         """
     )
-    def _post_save_hook_changed(self, name, old, new):
-        if new and isinstance(new, string_types):
-            self.post_save_hook = import_item(self.post_save_hook)
-        elif new:
-            if not callable(new):
-                raise TraitError("post_save_hook must be callable")
+
+    @validate('post_save_hook')
+    def _validate_post_save_hook(self, proposal):
+        value = proposal['value']
+        if isinstance(value, string_types):
+            value = import_item(value)
+        if not callable(value):
+            raise TraitError("post_save_hook must be callable")
+        return value
 
     def run_post_save_hook(self, model, os_path):
         """Run the post-save hook if defined, and log errors"""
@@ -114,20 +130,28 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
             try:
                 self.log.debug("Running post-save hook on %s", os_path)
                 self.post_save_hook(os_path=os_path, model=model, contents_manager=self)
-            except Exception:
-                self.log.error("Post-save hook failed on %s", os_path, exc_info=True)
+            except Exception as e:
+                self.log.error("Post-save hook failed o-n %s", os_path, exc_info=True)
+                raise web.HTTPError(500, u'Unexpected error while running post hook save: %s' % e)
 
-    def _root_dir_changed(self, name, old, new):
+    @validate('root_dir')
+    def _validate_root_dir(self, proposal):
         """Do a bit of validation of the root_dir."""
-        if not os.path.isabs(new):
+        value = proposal['value']
+        if not os.path.isabs(value):
             # If we receive a non-absolute path, make it absolute.
-            self.root_dir = os.path.abspath(new)
-            return
-        if not os.path.isdir(new):
-            raise TraitError("%r is not a directory" % new)
+            value = os.path.abspath(value)
+        if not os.path.isdir(value):
+            raise TraitError("%r is not a directory" % value)
+        return value
 
+    @default('checkpoints_class')
     def _checkpoints_class_default(self):
         return FileCheckpoints
+
+    @default('files_handler_class')
+    def _files_handler_class_default(self):
+        return AuthenticatedFileHandler
 
     def is_hidden(self, path):
         """Does the API style path correspond to a hidden directory or file?
@@ -203,14 +227,28 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
         """
         path = path.strip('/')
         os_path = self._get_os_path(path=path)
-        return os.path.exists(os_path)
+        return exists(os_path)
 
     def _base_model(self, path):
         """Build the common base of a contents model"""
         os_path = self._get_os_path(path)
-        info = os.stat(os_path)
-        last_modified = tz.utcfromtimestamp(info.st_mtime)
-        created = tz.utcfromtimestamp(info.st_ctime)
+        info = os.lstat(os_path)
+        try:
+            last_modified = tz.utcfromtimestamp(info.st_mtime)
+        except (ValueError, OSError):
+            # Files can rarely have an invalid timestamp
+            # https://github.com/jupyter/notebook/issues/2539
+            # https://github.com/jupyter/notebook/issues/2757
+            # Use the Unix epoch as a fallback so we don't crash.
+            self.log.warning('Invalid mtime %s for %s', info.st_mtime, os_path)
+            last_modified = datetime(1970, 1, 1, 0, 0, tzinfo=tz.UTC)
+
+        try:
+            created = tz.utcfromtimestamp(info.st_ctime)
+        except (ValueError, OSError):  # See above
+            self.log.warning('Invalid ctime %s for %s', info.st_ctime, os_path)
+            created = datetime(1970, 1, 1, 0, 0, tzinfo=tz.UTC)
+
         # Create the base model.
         model = {}
         model['name'] = path.rsplit('/', 1)[-1]
@@ -256,14 +294,24 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
                     self.log.warning(
                         "failed to decode filename '%s': %s", name, e)
                     continue
-                # skip over broken symlinks in listing
-                if not os.path.exists(os_path):
-                    self.log.warning("%s doesn't exist", os_path)
+
+                try:
+                    st = os.lstat(os_path)
+                except OSError as e:
+                    # skip over broken symlinks in listing
+                    if e.errno == errno.ENOENT:
+                        self.log.warning("%s doesn't exist", os_path)
+                    else:
+                        self.log.warning("Error stat-ing %s: %s", os_path, e)
                     continue
-                elif not os.path.isfile(os_path) and not os.path.isdir(os_path):
+
+                if (not stat.S_ISLNK(st.st_mode)
+                        and not stat.S_ISREG(st.st_mode)
+                        and not stat.S_ISDIR(st.st_mode)):
                     self.log.debug("%s not a regular file", os_path)
                     continue
-                if self.should_list(name) and not is_hidden(os_path, self.root_dir):
+
+                if self.should_list(name) and not is_file_hidden(os_path, stat_res=st):
                     contents.append(self.get(
                         path='%s/%s' % (path, name),
                         content=False)
@@ -461,7 +509,7 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
         old_os_path = self._get_os_path(old_path)
 
         # Should we proceed with the move?
-        if os.path.exists(new_os_path) and not same_file(old_os_path, new_os_path):
+        if os.path.exists(new_os_path) and not samefile(old_os_path, new_os_path):
             raise web.HTTPError(409, u'File already exists: %s' % new_path)
 
         # Move the file
@@ -474,10 +522,12 @@ class FileContentsManager(FileManagerMixin, ContentsManager):
             raise web.HTTPError(500, u'Unknown error renaming file: %s %s' % (old_path, e))
 
     def info_string(self):
-        return "Serving notebooks from local directory: %s" % self.root_dir
+        return _("Serving notebooks from local directory: %s") % self.root_dir
 
     def get_kernel_path(self, path, model=None):
         """Return the initial API path of  a kernel associated with a given notebook"""
+        if self.dir_exists(path):
+            return path
         if '/' in path:
             parent_dir = path.rsplit('/', 1)[0]
         else:

@@ -1,6 +1,5 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
-__webpack_public_path__ = window['staticURL'] + 'tree/js/built/';
 
 // adapted from Mozilla Developer Network example at
 // https://developer.mozilla.org/en/JavaScript/Reference/Global_Objects/Function/bind
@@ -21,11 +20,13 @@ var bind = function bind(obj) {
 Function.prototype.bind = Function.prototype.bind || bind ;
 
 
-requirejs(['contents'], function(contents_service) {
 require([
+    'jquery',
+    'contents',
     'base/js/namespace',
     'base/js/dialog',
     'base/js/events',
+    'base/js/promises',
     'base/js/page',
     'base/js/utils',
     'services/config',
@@ -35,10 +36,14 @@ require([
     'tree/js/terminallist',
     'tree/js/newnotebook',
     'auth/js/loginwidget',
+    'bidi/bidi',
 ], function(
+    $,
+    contents_service,
     IPython,
     dialog,
     events,
+    promises,
     page,
     utils,
     config,
@@ -47,14 +52,20 @@ require([
     kernellist,
     terminallist,
     newnotebook,
-    loginwidget){
+    loginwidget,
+    bidi){
     "use strict";
+    
     try{
         requirejs(['custom/custom'], function() {});
+        bidi.loadLocale();
     } catch(err) {
         console.log("Error loading custom.js from tree service. Continuing and logging");
         console.warn(err);
     }
+
+    console.log('Welcome to Project Jupyter! Explore the various tools available and their corresponding documentation. If you are interested in contributing to the platform, please visit the community resources section at http://jupyter.org/community.html.');
+
 
     // Setup all of the config related things
 
@@ -70,7 +81,7 @@ require([
 
     // Instantiate the main objects
 
-    page = new page.Page();
+    page = new page.Page('div#header', 'div#site');
 
     var session_list = new sesssionlist.SesssionList($.extend({
         events: events},
@@ -198,5 +209,4 @@ require([
     if (window.location.hash) {
         $("#tabs").find("a[href=" + window.location.hash + "]").click();
     }
-});
 });

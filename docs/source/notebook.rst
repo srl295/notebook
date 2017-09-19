@@ -22,7 +22,8 @@ text, mathematics, images, and rich media representations of objects.
 
 .. seealso::
 
-    See the :ref:`installation guide <jupyter:install>` on how to install the notebook and its dependencies.
+    See the :ref:`installation guide <jupyter:install>` on how to install the
+    notebook and its dependencies.
 
 
 Main features of the web application
@@ -46,7 +47,7 @@ Main features of the web application
 
 
 
-.. _MathJax: http://www.mathjax.org/
+.. _MathJax: https://www.mathjax.org/
 
 
 Notebook documents
@@ -60,7 +61,7 @@ are internally JSON_ files and are saved with the ``.ipynb`` extension. Since
 JSON is a plain text format, they can be version-controlled and shared with
 colleagues.
 
-.. _JSON: http://en.wikipedia.org/wiki/JSON
+.. _JSON: https://en.wikipedia.org/wiki/JSON
 
 Notebooks may be exported to a range of static formats, including HTML (for
 example, for blog posts), reStructuredText, LaTeX, PDF, and slide shows, via
@@ -135,34 +136,38 @@ the dashboard.
 
 Opening notebooks
 ~~~~~~~~~~~~~~~~~
-An open notebook has **exactly one** interactive session connected to an
-:ref:`IPython kernel <ipythonzmq>`, which will execute code sent by the user
+An open notebook has **exactly one** interactive session connected to a
+kernel, which will execute code sent by the user
 and communicate back results.  This kernel remains active if the web browser
 window is closed, and reopening the same notebook from the dashboard will
 reconnect the web application to the same kernel. In the dashboard, notebooks
 with an active kernel have a ``Shutdown`` button next to them, whereas
 notebooks without an active kernel have a ``Delete`` button in its place.
 
-Other clients may connect to the same underlying IPython kernel.
-The notebook server always prints to the terminal the full details of
-how to connect to each kernel, with messages such as the following::
+Other clients may connect to the same kernel.
+When each kernel is started, the notebook server prints to the terminal a
+message like this::
 
     [NotebookApp] Kernel started: 87f7d2c0-13e3-43df-8bb8-1bd37aaf3373
 
 This long string is the kernel's ID which is sufficient for getting the
-information necessary to connect to the kernel.  You can also request this
+information necessary to connect to the kernel. If the notebook uses the IPython
+kernel, you can also see this
 connection data by running the ``%connect_info`` :ref:`magic
-<magics_explained>`. This will print the same ID information as well as the
-content of the JSON data structure it contains.
+<magics_explained>`, which will print the same ID information along with other
+details.
 
 You can then, for example, manually start a Qt console connected to the *same*
 kernel from the command line, by passing a portion of the ID::
 
-    $ ipython qtconsole --existing 87f7d2c0
+    $ jupyter qtconsole --existing 87f7d2c0
 
 Without an ID, ``--existing`` will  connect to the most recently
-started kernel. This can also be done by running the ``%qtconsole``
-:ref:`magic <magics_explained>` in the notebook.
+started kernel.
+
+With the IPython kernel, you can also run the ``%qtconsole``
+:ref:`magic <magics_explained>` in the notebook to open a Qt console connected
+to the same kernel.
 
 .. seealso::
 
@@ -203,15 +208,14 @@ operations within the notebook, by clicking on an icon.
 Structure of a notebook document
 --------------------------------
 
-The notebook consists of a sequence of cells.  A cell is a multiline
-text input field, and its contents can be executed by using
-:kbd:`Shift-Enter`, or by clicking either the "Play" button the toolbar, or
-`Cell | Run` in the menu bar.  The execution behavior of a cell is determined
-the cell's type.  There are four types of cells: **code cells**, **markdown
-cells**, **raw cells** and **heading cells**.  Every cell starts off
-being a **code cell**, but its type can be changed by using a drop-down on the
-toolbar (which will be "Code", initially), or via :ref:`keyboard shortcuts
-<keyboard-shortcuts>`.
+The notebook consists of a sequence of cells.  A cell is a multiline text input
+field, and its contents can be executed by using :kbd:`Shift-Enter`, or by
+clicking either the "Play" button the toolbar, or `Cell | Run` in the menu bar.
+The execution behavior of a cell is determined by the cell's type.  There are three
+types of cells: **code cells**, **markdown cells**, and **raw cells**.  Every
+cell starts off being a **code cell**, but its type can be changed by using a
+drop-down on the toolbar (which will be "Code", initially), or via
+:ref:`keyboard shortcuts <keyboard-shortcuts>`.
 
 For more information on the different things you can do in a notebook,
 see the `collection of examples
@@ -245,6 +249,11 @@ called *Markdown cells*. The Markdown language provides a simple way to
 perform this text markup, that is, to specify which parts of the text should
 be emphasized (italics), bold, form lists, etc.
 
+If you want to provide structure for your document, you can use markdown
+headings. Markdown headings consist of 1 to 6 hash # signs ``#`` followed by a
+space and the title of your section. The markdown heading will be converted
+to a clickable link for a section of the notebook. It is also used as a hint
+when exporting to other document formats, like PDF.
 
 When a Markdown cell is executed, the Markdown code is converted into
 the corresponding formatted rich text. Markdown allows arbitrary HTML code for
@@ -269,7 +278,7 @@ the IPython session.
 
 .. seealso::
 
-    `Markdown Cells`_ example notebook
+    `Working with Markdown Cells`_ example notebook
 
 Raw cells
 ~~~~~~~~~
@@ -281,17 +290,6 @@ destination format unmodified. For example, this allows you to type full LaTeX
 into a raw cell, which will only be rendered by LaTeX after conversion by
 nbconvert.
 
-Heading cells
-~~~~~~~~~~~~~
-
-If you want to provide structure for your document, you can use markdown
-headings. Markdown headings consist of 1 to 6 hash # signs ``#`` followed by a
-space and the title of your section. The markdown heading will be converted
-to a clickable link for a section of the notebook. It is also used as a hint
-when exporting to other document formats, like PDF.
-We recommend using only one markdown header in a cell and limit the cell's
-content to the header text. For flexibility of text format conversion, we
-suggest placing additional text in the next notebook cell.
 
 Basic workflow
 --------------
@@ -325,8 +323,6 @@ content of markdown cells have been inserted as comments.
     `Running Code in the Jupyter Notebook`_ example notebook
 
     `Notebook Basics`_ example notebook
-
-    :ref:`a warning about doing "roundtrip" conversions <note_about_roundtrip>`.
 
 .. _keyboard-shortcuts:
 
@@ -376,12 +372,13 @@ Specific plotting library integration is a feature of the kernel.
 Installing kernels
 ------------------
 
-For information on how to install a Python kernel, refer to the `IPython install
-page <http://ipython.org/install.html>`__.
+For information on how to install a Python kernel, refer to the
+`IPython install page <http://ipython.org/install.html>`__.
 
 Kernels for other languages can be found in the `IPython wiki
 <https://github.com/ipython/ipython/wiki/IPython%20kernels%20for%20other%20languages>`_.
-They usually come with instruction what to run to make the kernel available in the notebook.
+They usually come with instruction what to run to make the kernel available
+in the notebook.
 
 
 .. _signing_notebooks:
@@ -396,8 +393,9 @@ If the signature stored in the notebook metadata does not match,
 javascript and HTML output will not be displayed on load,
 and must be regenerated by re-executing the cells.
 
-Any notebook that you have executed yourself *in its entirety* will be considered trusted,
-and its HTML and javascript output will be displayed on load.
+Any notebook that you have executed yourself *in its entirety* will be
+considered trusted, and its HTML and javascript output will be displayed on
+load.
 
 If you need to see HTML or Javascript output without re-executing,
 you can explicitly trust notebooks, such as those shared with you,
@@ -417,13 +415,15 @@ You can generate a new notebook signing key with::
 Browser Compatibility
 ---------------------
 
-The Jupyter Notebook is officially supported the latest stable version the following browsers:
+The Jupyter Notebook is officially supported by the latest stable versions of the
+following browsers:
 
 * Chrome
 * Safari
 * Firefox
 
-The is mainly due to the notebook's usage of WebSockets and the flexible box model.
+The is mainly due to the notebook's usage of WebSockets and the flexible box
+model.
 
 The following browsers are unsupported:
 

@@ -2,10 +2,12 @@
 // Distributed under the terms of the Modified BSD License.
 
 define([
+    'jquery',
     'base/js/namespace',
     'base/js/dialog',
-    'base/js/utils'
-], function(IPython, dialog, utils) {
+    'base/js/utils',
+    'base/js/i18n'
+], function($, IPython, dialog, utils, i18n) {
     "use strict";
     
     var KernelSelector = function(selector, notebook) {
@@ -131,6 +133,7 @@ define([
         $("#kernel_indicator").find('.kernel_indicator_name').text(ks.spec.display_name);
         if (ks.resources['logo-64x64']) {
             logo_img.attr("src", ks.resources['logo-64x64']);
+            logo_img.attr("title", ks.spec.display_name);
             logo_img.show();
         } else {
             logo_img.hide();
@@ -263,15 +266,19 @@ define([
             );
         });
         
+        var no_kernel_msg = i18n.msg.sprintf(i18n.msg._("Could not find a kernel matching %s. Please select a kernel:"),
+                (data.selected.display_name || data.selected.name))
         var body = $("<form>").addClass("form-inline").append(
-            $("<span>").text(
-                "I couldn't find a kernel matching " + (data.selected.display_name || data.selected.name) + "." +
-                " Please select a kernel:"
-            )
+            $("<span>").text(no_kernel_msg)
         ).append(select);
+
+        // This statement is used simply so that message extraction
+        // will pick up the strings.  The actual setting of the text
+        // for the button is in dialog.js.
+        var button_labels = [ i18n.msg._("Continue Without Kernel"), i18n.msg._("Set Kernel"), i18n.msg._("OK") ];
         
         dialog.modal({
-            title : 'Kernel not found',
+            title : i18n.msg._('Kernel not found'),
             body : body,
             buttons : {
                 'Continue Without Kernel' : {
@@ -309,8 +316,8 @@ define([
             function(error) {
                 w.close();
                 dialog.modal({
-                    title : 'Creating Notebook Failed',
-                    body : "The error was: " + error.message,
+                    title : i18n.msg._('Creating Notebook Failed'),
+                    body : i18n.msg.sprintf(i18n.msg._("The error was: %s"), error.message),
                     buttons : {'OK' : {'class' : 'btn-primary'}}
                 });
             }

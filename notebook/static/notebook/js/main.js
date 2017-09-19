@@ -1,6 +1,5 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
-__webpack_public_path__ = window['staticURL'] + 'notebook/js/built/';
 
 // adapted from Mozilla Developer Network example at
 // https://developer.mozilla.org/en/JavaScript/Reference/Global_Objects/Function/bind
@@ -21,18 +20,20 @@ var bind = function bind(obj) {
 Function.prototype.bind = Function.prototype.bind || bind ;
 
 
-requirejs(['contents'], function(contentsModule) {
 require([
-    'base/js/namespace',
     'jquery',
+    'contents',
+    'base/js/namespace',
     'notebook/js/notebook',
     'services/config',
     'base/js/utils',
     'base/js/page',
     'base/js/events',
+    'base/js/promises',
     'auth/js/loginwidget',
     'notebook/js/maintoolbar',
     'notebook/js/pager',
+    'notebook/js/promises',
     'notebook/js/quickhelp',
     'notebook/js/menubar',
     'notebook/js/notificationarea',
@@ -43,18 +44,22 @@ require([
     'codemirror/lib/codemirror',
     'notebook/js/about',
     'notebook/js/searchandreplace',
-    'notebook/js/clipboard'
+    'notebook/js/clipboard',
+    'bidi/bidi'
 ], function(
-    IPython,
     $,
+    contents_service,
+    IPython,
     notebook,
     configmod,
     utils,
     page,
     events,
+    promises,
     loginwidget,
     maintoolbar,
     pager,
+    nb_promises,
     quickhelp,
     menubar,
     notificationarea,
@@ -65,7 +70,8 @@ require([
     CodeMirror,
     about,
     searchandreplace,
-    clipboard
+    clipboard,
+    bidi
     ) {
     "use strict";
 
@@ -74,8 +80,9 @@ require([
     
     try{
         requirejs(['custom/custom'], function() {});
+        bidi.loadLocale();
     } catch(err) {
-        console.log("Error processing custom.js. Logging and continuing")
+        console.log("Error processing custom.js. Logging and continuing");
         console.warn(err);
     }
 
@@ -99,7 +106,7 @@ require([
 
     // Instantiate the main objects
     
-    var page = new page.Page();
+    var page = new page.Page('div#header', 'div#site');
     var pager = new pager.Pager('div#pager', {
         events: events});
     var acts = new actions.init();
@@ -113,7 +120,7 @@ require([
         events: events,
         keyboard_manager: keyboard_manager});
     acts.extend_env({save_widget:save_widget});
-    var contents = new contentsModule.Contents({
+    var contents = new contents_service.Contents({
           base_url: common_options.base_url,
           common_config: common_config
         });
@@ -141,7 +148,8 @@ require([
         events: events,
         save_widget: save_widget,
         quick_help: quick_help,
-        actions: acts},
+        actions: acts,
+        config: config_section},
         common_options));
     var notification_area = new notificationarea.NotebookNotificationArea(
         '#notification_area', {
@@ -230,5 +238,4 @@ require([
 
     notebook.load_notebook(common_options.notebook_path);
 
-});
 });

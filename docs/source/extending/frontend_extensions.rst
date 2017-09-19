@@ -167,7 +167,7 @@ alert, and adds a toolabr button using the full action name:
             var prefix = 'my_extension';
             var action_name = 'show-alert';
 
-            var full_action_name = Jupyter.actions.register(action, name, prefix); // returns 'my_extension:show-alert'
+            var full_action_name = Jupyter.actions.register(action, action_name, prefix); // returns 'my_extension:show-alert'
             Jupyter.toolbar.add_buttons_group([full_action_name]);
         }
 
@@ -207,11 +207,11 @@ You can install your nbextension with the command::
 
     jupyter nbextension install path/to/my_extension/ [--user|--sys-prefix]
 
-The default installation is system-wide. You can use ``--user`` to do a per-user installation,
-or ``--sys-prefix`` to install to Python's prefix (e.g. in a virtual or conda environment).
-Where my_extension is the directory containing the Javascript files.
-This will copy it to a Jupyter data directory (the exact location is platform
-dependent - see :ref:`jupyter_path`).
+The default installation is system-wide. You can use ``--user`` to do a
+per-user installation, or ``--sys-prefix`` to install to Python's prefix (e.g.
+in a virtual or conda environment). Where my_extension is the directory
+containing the Javascript files. This will copy it to a Jupyter data directory
+(the exact location is platform dependent - see :ref:`jupyter_path`).
 
 For development, you can use the ``--symlink`` flag to symlink your extension
 rather than copying it, so there's no need to reinstall after changes.
@@ -263,15 +263,16 @@ effect to changing a kernel in the notebook. As it is impossible to "unload"
 JavaScript, any attempt to change the kernelspec again will save the current
 notebook and reload the page without confirmations.
 
-Here is an example of ``kernel.js``::
+Here is an example of ``kernel.js``:
 
 .. code:: javascript
-
-    // kernel.js
 
     define(function(){
       return {onload: function(){
         console.info('Kernel specific javascript loaded');
-        // do more things here, like define a codemirror mode,
+
+        // do more things here, like define a codemirror mode
+
       }}
+
     });

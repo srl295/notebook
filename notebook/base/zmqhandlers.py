@@ -87,14 +87,6 @@ def deserialize_binary_message(bmsg):
 # ping interval for keeping websockets alive (30 seconds)
 WS_PING_INTERVAL = 30000
 
-if os.environ.get('IPYTHON_ALLOW_DRAFT_WEBSOCKETS_FOR_PHANTOMJS', False):
-    warnings.warn("""Allowing draft76 websocket connections!
-    This should only be done for testing with phantomjs!""")
-    from notebook import allow76
-    WebSocketHandler = allow76.AllowDraftWebSocketHandler
-    # draft 76 doesn't support ping
-    WS_PING_INTERVAL = 0
-
 
 class WebSocketMixin(object):
     """Mixin for common websocket options"""
@@ -126,20 +118,18 @@ class WebSocketMixin(object):
         
         Tornado >= 4 calls this method automatically, raising 403 if it returns False.
         """
-        if self.allow_origin == '*':
+
+        if self.allow_origin == '*' or (
+            hasattr(self, 'skip_check_origin') and self.skip_check_origin()):
             return True
 
         host = self.request.headers.get("Host")
         if origin is None:
             origin = self.get_origin()
         
-        # If no header is provided, assume we can't verify origin
-        if origin is None:
-            self.log.warning("Missing Origin header, rejecting WebSocket connection.")
-            return False
-        if host is None:
-            self.log.warning("Missing Host header, rejecting WebSocket connection.")
-            return False
+        # If no origin or host header is provided, assume from script
+        if origin is None or host is None:
+            return True
         
         origin = origin.lower()
         origin_host = urlparse(origin).netloc
@@ -298,5 +288,4 @@ class AuthenticatedZMQStreamHandler(ZMQStreamHandler, IPythonHandler):
         self.session = Session(config=self.config)
 
     def get_compression_options(self):
-        # use deflate compress websocket
-        return {}
+        return self.settings.get('websocket_compression_options', None)

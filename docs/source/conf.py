@@ -30,6 +30,8 @@ for item in sys.path:
 # add repo root to sys.path
 # here = root/docs/source
 here = os.path.abspath(os.path.dirname(__file__))
+sphinxext = os.path.join(os.path.dirname(here), 'sphinxext')
+sys.path.insert(0, sphinxext)
 repo_root = os.path.dirname(os.path.dirname(here))
 sys.path.insert(0, repo_root)
 
@@ -70,6 +72,7 @@ extensions = [
     'sphinx.ext.mathjax',
     'IPython.sphinxext.ipython_console_highlighting',
     'nbsphinx',
+    'github',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -90,6 +93,9 @@ master_doc = 'index'
 project = 'Jupyter Notebook'
 copyright = '2015, Jupyter Team, https://jupyter.org'
 author = 'The Jupyter Team'
+
+# ghissue config
+github_project_url = "https://github.com/jupyter/notebook"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -307,6 +313,13 @@ man_pages = [
 #man_show_urls = False
 
 
+# -- Options for link checks ----------------------------------------------
+
+linkcheck_ignore = [
+    'http://127\.0\.0\.1/*'
+]
+
+
 # -- Options for Texinfo output -------------------------------------------
 
 # Grouping the document tree into Texinfo files. List of tuples
@@ -331,11 +344,14 @@ texinfo_documents = [
 #texinfo_no_detailmenu = False
 
 intersphinx_mapping = {
-    'ipython': ('http://ipython.org/ipython-doc/dev/', None),
-    'nbconvert': ('http://nbconvert.readthedocs.org/en/latest/', None),
-    'nbformat': ('http://nbformat.readthedocs.org/en/latest/', None),
-    'jupyter': ('http://jupyter.readthedocs.org/en/latest/', None),
+    'ipython': ('https://ipython.readthedocs.io/en/stable/', None),
+    'nbconvert': ('https://nbconvert.readthedocs.io/en/latest/', None),
+    'nbformat': ('https://nbformat.readthedocs.io/en/latest/', None),
+    'jupyter': ('https://jupyter.readthedocs.io/en/latest/', None),
 }
 
 spelling_lang='en_US'
 spelling_word_list_filename='spelling_wordlist.txt'
+
+# import before any doc is built, so _ is guaranteed to be injected
+import notebook.transutils

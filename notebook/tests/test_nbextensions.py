@@ -33,17 +33,17 @@ from notebook.nbextensions import (install_nbextension, check_nbextension,
 from traitlets.config.manager import BaseJSONConfigManager
 
 
-def touch(file, mtime=None):
+def touch(file_name, mtime=None):
     """ensure a file exists, and set its modification time
     
     returns the modification time of the file
     """
-    open(file, 'a').close()
+    open(file_name, 'a').close()
     # set explicit mtime
     if mtime:
-        atime = os.stat(file).st_atime
-        os.utime(file, (atime, mtime))
-    return os.stat(file).st_mtime
+        atime = os.stat(file_name).st_atime
+        os.utime(file_name, (atime, mtime))
+    return os.stat(file_name).st_mtime
 
 
 def test_help_output():
@@ -62,38 +62,51 @@ class TestInstallNBExtension(TestCase):
         return py3compat.cast_unicode(td.name)
 
     def setUp(self):
+        # Any TemporaryDirectory objects appended to this list will be cleaned
+        # up at the end of the test run.
         self.tempdirs = []
+
+        @self.addCleanup
+        def cleanup_tempdirs():
+            for d in self.tempdirs:
+                d.cleanup()
+
         self.src = self.tempdir()
         self.files = files = [
             pjoin(u'ƒile'),
             pjoin(u'∂ir', u'ƒile1'),
             pjoin(u'∂ir', u'∂ir2', u'ƒile2'),
         ]
-        for file in files:
-            fullpath = os.path.join(self.src, file)
+        for file_name in files:
+            fullpath = os.path.join(self.src, file_name)
             parent = os.path.dirname(fullpath)
             if not os.path.exists(parent):
                 os.makedirs(parent)
             touch(fullpath)
-        
+
         self.test_dir = self.tempdir()
         self.data_dir = os.path.join(self.test_dir, 'data')
         self.config_dir = os.path.join(self.test_dir, 'config')
         self.system_data_dir = os.path.join(self.test_dir, 'system_data')
         self.system_path = [self.system_data_dir]
         self.system_nbext = os.path.join(self.system_data_dir, 'nbextensions')
+
+        # Patch out os.environ so that tests are isolated from the real OS
+        # environment.
         self.patch_env = patch.dict('os.environ', {
             'JUPYTER_CONFIG_DIR': self.config_dir,
             'JUPYTER_DATA_DIR': self.data_dir,
         })
         self.patch_env.start()
-        self.patch_system_path = patch.object(nbextensions,
-            'SYSTEM_JUPYTER_PATH', self.system_path)
+        self.addCleanup(self.patch_env.stop)
+
+        # Patch out the system path os that we consistently use our own
+        # temporary directory instead.
+        self.patch_system_path = patch.object(
+            nbextensions, 'SYSTEM_JUPYTER_PATH', self.system_path
+        )
         self.patch_system_path.start()
-    
-    def tearDown(self):
-        self.patch_env.stop()
-        self.patch_system_path.stop()
+        self.addCleanup(self.patch_system_path.stop)
 
     def assert_dir_exists(self, path):
         if not os.path.exists(path):
@@ -131,9 +144,9 @@ class TestInstallNBExtension(TestCase):
             }):
                 install_nbextension(self.src, user=True)
                 self.assert_dir_exists(data_dir)
-                for file in self.files:
+                for file_name in self.files:
                     self.assert_installed(
-                        pjoin(basename(self.src), file),
+                        pjoin(basename(self.src), file_name),
                         user=True,
                     )
     
@@ -156,19 +169,27 @@ class TestInstallNBExtension(TestCase):
                 )
     
     def test_single_file(self):
-        file = self.files[0]
-        install_nbextension(pjoin(self.src, file))
-        self.assert_installed(file)
+        file_name = self.files[0]
+        install_nbextension(pjoin(self.src, file_name))
+        self.assert_installed(file_name)
     
     def test_single_dir(self):
         d = u'∂ir'
         install_nbextension(pjoin(self.src, d))
         self.assert_installed(self.files[-1])
     
+    def test_single_dir_trailing_slash(self):
+        d = u'∂ir/'
+        install_nbextension(pjoin(self.src, d))
+        self.assert_installed(self.files[-1])
+        if os.name == 'nt':
+            d = u'∂ir\\'
+            install_nbextension(pjoin(self.src, d))
+            self.assert_installed(self.files[-1])
 
     def test_destination_file(self):
-        file = self.files[0]
-        install_nbextension(pjoin(self.src, file), destination = u'ƒiledest')
+        file_name = self.files[0]
+        install_nbextension(pjoin(self.src, file_name), destination = u'ƒiledest')
         self.assert_installed(u'ƒiledest')
 
     def test_destination_dir(self):
@@ -344,16 +365,17 @@ class TestInstallNBExtension(TestCase):
         link = os.readlink(dest)
         self.assertEqual(link, src)
 
+    @dec.skip_win32
     def test_install_symlink_bad(self):
         with self.assertRaises(ValueError):
             install_nbextension("http://example.com/foo.js", symlink=True)
-        
+
         with TemporaryDirectory() as d:
             zf = u'ƒ.zip'
             zsrc = pjoin(d, zf)
             with zipfile.ZipFile(zsrc, 'w') as z:
                 z.writestr("a.js", b"b();")
-        
+
             with self.assertRaises(ValueError):
                 install_nbextension(zsrc, symlink=True)
 
@@ -363,7 +385,7 @@ class TestInstallNBExtension(TestCase):
             zsrc = pjoin(d, zf)
             with zipfile.ZipFile(zsrc, 'w') as z:
                 z.writestr("a.js", b"b();")
-        
+
             with self.assertRaises(ValueError):
                 install_nbextension(zsrc, destination='foo')
 

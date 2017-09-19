@@ -2,8 +2,9 @@
 // Distributed under the terms of the Modified BSD License.
 
 define([
+    'jquery',
     'base/js/utils',
-], function(utils) {
+], function($, utils) {
     "use strict";
 
     //-----------------------------------------------------------------------
@@ -29,8 +30,8 @@ define([
             kernel.register_iopub_handler(msg_type, $.proxy(this[msg_type], this));
         }
     };
-    
-    CommManager.prototype.new_comm = function (target_name, data, callbacks, metadata, comm_id) {
+
+    CommManager.prototype.new_comm = function (target_name, data, callbacks, metadata, comm_id, buffers) {
         /**
          * Create a new Comm, register it, and open its Kernel-side counterpart
          * Mimics the auto-registration in `Comm.__init__` in the Jupyter Comm.
@@ -39,7 +40,7 @@ define([
          */
         var comm = new Comm(target_name, comm_id);
         this.register_comm(comm);
-        comm.open(data, callbacks, metadata);
+        comm.open(data, callbacks, metadata, buffers);
         return comm;
     };
     
@@ -128,12 +129,9 @@ define([
         }
 
         this.comms[content.comm_id] = this.comms[content.comm_id].then(function(comm) {
-            try {
-                comm.handle_msg(msg);
-            } catch (e) {
-                console.log("Exception handling comm msg: ", e, e.stack, msg);
-            }
-            return comm;
+            return (Promise.resolve(comm.handle_msg(msg))
+                .catch(utils.reject('Exception handling comm message'))
+                .then(function() {return comm;}));
         });
         return this.comms[content.comm_id];
     };
@@ -149,13 +147,13 @@ define([
     };
     
     // methods for sending messages
-    Comm.prototype.open = function (data, callbacks, metadata) {
+    Comm.prototype.open = function (data, callbacks, metadata, buffers) {
         var content = {
             comm_id : this.comm_id,
             target_name : this.target_name,
             data : data || {},
         };
-        return this.kernel.send_shell_message("comm_open", content, callbacks, metadata);
+        return this.kernel.send_shell_message("comm_open", content, callbacks, metadata, buffers);
     };
     
     Comm.prototype.send = function (data, callbacks, metadata, buffers) {
@@ -165,13 +163,13 @@ define([
         };
         return this.kernel.send_shell_message("comm_msg", content, callbacks, metadata, buffers);
     };
-    
-    Comm.prototype.close = function (data, callbacks, metadata) {
+
+    Comm.prototype.close = function (data, callbacks, metadata, buffers) {
         var content = {
             comm_id : this.comm_id,
             data : data || {},
         };
-        return this.kernel.send_shell_message("comm_close", content, callbacks, metadata);
+        return this.kernel.send_shell_message("comm_close", content, callbacks, metadata, buffers);
     };
     
     // methods for registering callbacks for incoming messages
@@ -193,7 +191,7 @@ define([
         var callback = this['_' + key + '_callback'];
         if (callback) {
             try {
-                callback(msg);
+                return callback(msg);
             } catch (e) {
                 console.log("Exception in Comm callback", e, e.stack, msg);
             }
@@ -201,7 +199,7 @@ define([
     };
     
     Comm.prototype.handle_msg = function (msg) {
-        this._callback('msg', msg);
+        return this._callback('msg', msg);
     };
     
     Comm.prototype.handle_close = function (msg) {

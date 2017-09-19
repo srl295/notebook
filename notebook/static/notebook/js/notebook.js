@@ -5,30 +5,65 @@
  * @module notebook
  */
 "use strict";
-import IPython from 'base/js/namespace';
-import _ from 'underscore';
-import utils from 'base/js/utils';
-import dialog from 'base/js/dialog';
-import cellmod from 'notebook/js/cell';
-import textcell from 'notebook/js/textcell';
-import codecell from 'notebook/js/codecell';
-import moment from 'moment';
-import configmod from 'services/config';
-import session from 'services/sessions/session';
-import celltoolbar from 'notebook/js/celltoolbar';
-import marked from 'components/marked/lib/marked';
-import CodeMirror from 'codemirror/lib/codemirror';
-import runMode from 'codemirror/addon/runmode/runmode';
-import mathjaxutils from 'notebook/js/mathjaxutils';
-import keyboard from 'base/js/keyboard';
-import tooltip from 'notebook/js/tooltip';
-import default_celltoolbar from 'notebook/js/celltoolbarpresets/default';
-import rawcell_celltoolbar from 'notebook/js/celltoolbarpresets/rawcell';
-import slideshow_celltoolbar from 'notebook/js/celltoolbarpresets/slideshow';
-import attachments_celltoolbar from 'notebook/js/celltoolbarpresets/attachments';
-import scrollmanager from 'notebook/js/scrollmanager';
-import commandpalette from 'notebook/js/commandpalette';
-import {ShortcutEditor} from 'notebook/js/shortcuteditor';
+define([
+    'jquery',
+    'base/js/namespace',
+    'underscore',
+    'base/js/utils',
+    'base/js/i18n',
+    'base/js/dialog',
+    './cell',
+    './textcell',
+    './codecell',
+    'moment',
+    'services/config',
+    'services/sessions/session',
+    './celltoolbar',
+    'components/marked/lib/marked',
+    'codemirror/lib/codemirror',
+    'codemirror/addon/runmode/runmode',
+    './mathjaxutils',
+    'base/js/keyboard',
+    './tooltip',
+    './celltoolbarpresets/default',
+    './celltoolbarpresets/rawcell',
+    './celltoolbarpresets/slideshow',
+    './celltoolbarpresets/attachments',
+    './celltoolbarpresets/tags',
+    './scrollmanager',
+    './commandpalette',
+    './shortcuteditor',
+], function (
+    $,
+    IPython,
+    _,
+    utils,
+    i18n,
+    dialog,
+    cellmod,
+    textcell,
+    codecell,
+    moment,
+    configmod,
+    session,
+    celltoolbar,
+    marked,
+    CodeMirror,
+    runMode,
+    mathjaxutils,
+    keyboard,
+    tooltip,
+    default_celltoolbar,
+    rawcell_celltoolbar,
+    slideshow_celltoolbar,
+    attachments_celltoolbar,
+    tags_celltoolbar,
+    scrollmanager,
+    commandpalette,
+    shortcuteditor
+) {
+
+    var ShortcutEditor = shortcuteditor.ShortcutEditor;
 
     var _SOFT_SELECTION_CLASS = 'jupyter-soft-selected';
 
@@ -50,8 +85,9 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      * @param {string}          options.notebook_path
      * @param {string}          options.notebook_name
      */
-    export function Notebook(selector, options) {
+    function Notebook(selector, options) {
         this.config = options.config;
+        this.config.loaded.then(this.validate_config.bind(this))
         this.class_config = new configmod.ConfigWithDefaults(this.config, 
                                         Notebook.options_default, 'Notebook');
         this.base_url = options.base_url;
@@ -153,6 +189,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         this.kernel_selector = null;
         this.dirty = null;
         this.trusted = null;
+        this._changed_on_disk_dialog = null;
         this._fully_loaded = false;
 
         // Trigger cell toolbar registration.
@@ -160,16 +197,76 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         rawcell_celltoolbar.register(this);
         slideshow_celltoolbar.register(this);
         attachments_celltoolbar.register(this);
+        tags_celltoolbar.register(this);
 
+        var that = this;
+
+        Object.defineProperty(this, 'line_numbers', {
+            get: function() {
+                var d = that.config.data || {};
+                var cmc =  (d['Cell'] || {}) ['cm_config'] || {};
+                return cmc['lineNumbers'] || false;
+            },
+            set: function(value) {
+                that.config.update({
+                    'Cell': {
+                        'cm_config': {
+                            'lineNumbers':value
+                        }
+                    }
+                });
+            }
+        });
+        
+        Object.defineProperty(this, 'header', {
+            get: function() {
+                return that.class_config.get_sync('Header');
+            },
+            set: function(value) {
+                that.class_config.set('Header', value);
+            }
+        });
+                
+        Object.defineProperty(this, 'toolbar', {
+            get: function() {
+                return that.class_config.get_sync('Toolbar');
+            },
+            set: function(value) {
+                that.class_config.set('Toolbar', value);
+            }
+        });
+        
+        this.class_config.get('Header').then(function(header) {
+            if (header === false) {
+                that.keyboard_manager.actions.call('jupyter-notebook:hide-header');
+            }
+        });
+        
+        this.class_config.get('Toolbar').then(function(toolbar) {
+          if (toolbar === false) {
+              that.keyboard_manager.actions.call('jupyter-notebook:hide-toolbar');
+          }
+        });
+        
         // prevent assign to miss-typed properties.
         Object.seal(this);
     };
 
-
     Notebook.options_default = {
         // can be any cell type, or the special values of
         // 'above', 'below', or 'selected' to get the value from another cell.
-        default_cell_type: 'code'
+        default_cell_type: 'code',
+        Header: true,
+        Toolbar: true
+    };
+
+    Notebook.prototype.validate_config = function() {
+        var code_cell = this.config.data['CodeCell'] || {};
+        var cm_keymap = (code_cell['cm_config'] || {})['keyMap'];
+        if (cm_keymap && CodeMirror.keyMap[cm_keymap] === undefined) {
+            console.warn('CodeMirror keymap not found, ignoring: ' + cm_keymap);
+            delete code_cell.cm_config.keyMap;
+        }
     };
 
     /**
@@ -254,10 +351,8 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             if (!existing_spec || ! _.isEqual(existing_spec, that.metadata.kernelspec)) {
                 that.set_dirty(true);
             }
-            // start session if the current session isn't already correct
-            if (!(that.session && that.session.kernel && that.session.kernel.name === data.name)) {
-                that.start_session(data.name);
-            }
+            // start a new session
+            that.start_session(data.name);
         });
 
         this.events.on('kernel_ready.Kernel', function(event, data) {
@@ -343,14 +438,14 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                             that.save_notebook();
                         }
                     }, 1000);
-                    return "Autosave in progress, latest changes may be lost.";
+                    return i18n.msg._("Autosave in progress, latest changes may be lost.");
                 } else {
-                    return "Unsaved changes will be lost.";
+                    return i18n.msg._("Unsaved changes will be lost.");
                 }
             }
             // if the kernel is busy, prompt the user if he’s sure
             if (that.kernel_busy) {
-                return "The Kernel is busy, outputs may be lost.";
+                return i18n.msg._("The Kernel is busy, outputs may be lost.");
             }
             // IE treats null as a string.  Instead just return which will avoid the dialog.
             return;
@@ -373,14 +468,29 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         var v = 'v' + this.nbformat + '.';
         var orig_vs = v + this.nbformat_minor;
         var this_vs = v + this.current_nbformat_minor;
-        var msg = "This notebook is version " + orig_vs + ", but we only fully support up to " +
-        this_vs + ".  You can still work with this notebook, but cell and output types " +
-        "introduced in later notebook versions will not be available.";
+        var msg = i18n.msg.sprintf(i18n.msg._("This notebook is version %1$s, but we only fully support up to %2$s."),
+                orig_vs,this_vs) + " " +
+                i18n.msg._("You can still work with this notebook, but cell and output types introduced in later notebook versions will not be available.");
 
+        // This statement is used simply so that message extraction
+        // will pick up the strings.  The actual setting of the text
+        // for the button is in dialog.js.
+        var button_labels = [ 
+            i18n.msg._("OK"),
+            i18n.msg._("Restart and Run All Cells"),
+            i18n.msg._("Restart and Clear All Outputs"),
+            i18n.msg._("Restart"),
+            i18n.msg._("Continue Running"),
+            i18n.msg._("Reload"),
+            i18n.msg._("Cancel"),
+            i18n.msg._("Overwrite"),
+            i18n.msg._("Trust"),
+            i18n.msg._("Revert")];
+        
         dialog.modal({
             notebook: this,
             keyboard_manager: this.keyboard_manager,
-            title : "Newer Notebook",
+            title : i18n.msg._("Newer Notebook"),
             body : msg,
             buttons : {
                 OK : {
@@ -478,7 +588,8 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      * @return {jQuery} A selector of all cell elements
      */
     Notebook.prototype.get_cell_elements = function () {
-        return this.container.find(".cell").not('.cell .cell');
+        var container = this.container || $('#notebook-container')
+        return container.find(".cell").not('.cell .cell');
     };
 
     /**
@@ -556,6 +667,13 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             result = this.get_cell(index+1);
         }
         return result;
+    };
+    
+    /**
+     * Toggles the display of line numbers in all cells.
+     */
+    Notebook.prototype.toggle_all_line_numbers = function () {
+        this.line_numbers = !this.line_numbers;
     };
 
     /**
@@ -1437,12 +1555,12 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         dialog.modal({
             notebook: this,
             keyboard_manager: this.keyboard_manager,
-            title : "Use markdown headings",
+            title : i18n.msg._("Use markdown headings"),
             body : $("<p/>").text(
-                'Jupyter no longer uses special heading cells. ' + 
-                'Instead, write your headings in Markdown cells using # characters:'
+                i18n.msg._('Jupyter no longer uses special heading cells. ' + 
+                'Instead, write your headings in Markdown cells using # characters:')
             ).append($('<pre/>').text(
-                '## This is a level 2 heading'
+                i18n.msg._('## This is a level 2 heading')
             )),
             buttons : {
                 "OK" : {}
@@ -1477,11 +1595,14 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         var that = this;
         if (!this.paste_enabled) {
             $('#paste_cell_replace').removeClass('disabled')
-                .on('click', function () {that.paste_cell_replace();});
+                .on('click', function () {that.keyboard_manager.actions.call(
+                    'jupyter-notebook:paste-cell-replace');});
             $('#paste_cell_above').removeClass('disabled')
-                .on('click', function () {that.paste_cell_above();});
+                .on('click', function () {that.keyboard_manager.actions.call(
+                    'jupyter-notebook:paste-cell-above');});
             $('#paste_cell_below').removeClass('disabled')
-                .on('click', function () {that.paste_cell_below();});
+                .on('click', function () {that.keyboard_manager.actions.call(
+                    'jupyter-notebook:paste-cell-below');});
             this.paste_enabled = true;
         }
     };
@@ -1584,6 +1705,18 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             first_inserted.focus_cell();
         }
     };
+    
+    /**
+     * Re-render the output of a CodeCell.
+     */
+    Notebook.prototype.render_cell_output = function (code_cell) {
+        var cell_data = code_cell.toJSON();
+        var cell_index = this.find_cell_index(code_cell);
+        var trusted = code_cell.output_area.trusted;
+        this.clear_output(cell_index);
+        code_cell.output_area.trusted = trusted;
+        code_cell.fromJSON(cell_data);
+    };
 
     // Split/merge
 
@@ -1595,11 +1728,16 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         if (cell.is_splittable()) {
             var texta = cell.get_pre_cursor();
             var textb = cell.get_post_cursor();
+            // current cell becomes the second one
+            // so we don't need to worry about selection
             cell.set_text(textb);
+            // create new cell with same type
             var new_cell = this.insert_cell_above(cell.cell_type);
             // Unrender the new cell so we can call set_text.
             new_cell.unrender();
             new_cell.set_text(texta);
+            // duplicate metadata
+            new_cell.metadata = JSON.parse(JSON.stringify(cell.metadata));
         }
     };
 
@@ -1654,6 +1792,9 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
 
         // Delete the other cells
         this.delete_cells(indices);
+        
+        // Reset the target cell's undo history
+        target.code_mirror.clearHistory();
 
         this.select(this.find_cell_index(target));
     };
@@ -2073,7 +2214,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         var success = $.proxy(this._session_started, this);
         var failure = $.proxy(this._session_start_failed, this);
 
-        if (this.session !== null) {
+        if (this.session && this.session.kernel) {
             this.session.restart(options, success, failure);
         } else {
             this.session = new session.Session(options);
@@ -2117,9 +2258,9 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         restart_options.dialog = {
             notebook: that,
             keyboard_manager: that.keyboard_manager,
-            title : "Restart kernel and re-run the whole notebook?",
+            title : i18n.msg._("Restart kernel and re-run the whole notebook?"),
             body : $("<p/>").text(
-                'Are you sure you want to restart the current kernel and re-execute the whole notebook?  All variables and outputs will be lost.'
+                i18n.msg._('Are you sure you want to restart the current kernel and re-execute the whole notebook?  All variables and outputs will be lost.')
             ),
             buttons : {
                 "Restart and Run All Cells" : {
@@ -2144,9 +2285,9 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         restart_options.dialog = {
             notebook: that,
             keyboard_manager: that.keyboard_manager,
-            title : "Restart kernel and clear all output?",
+            title : i18n.msg._("Restart kernel and clear all output?"),
             body : $("<p/>").text(
-                'Do you want to restart the current kernel and clear all output?  All variables and outputs will be lost.'
+                i18n.msg._('Do you want to restart the current kernel and clear all output?  All variables and outputs will be lost.')
             ),
             buttons : {
                 "Restart and Clear All Outputs" : {
@@ -2164,14 +2305,36 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      * Prompt the user to restart the kernel.
      * if options.confirm === false, no confirmation dialog is shown.
      */
+    Notebook.prototype.shutdown_kernel = function (options) {
+        var that = this;
+        var shutdown_options = {};
+        shutdown_options.confirm = (options || {}).confirm;
+        shutdown_options.dialog = {
+            title : "Shutdown kernel?",
+            body : $("<p/>").text(
+                'Do you want to shutdown the current kernel?  All variables will be lost.'
+            ),
+            buttons : {
+                "Shutdown" : {
+                    "class" : "btn-danger",
+                    "click" : function () {},
+                },
+            }
+        };
+        shutdown_options.kernel_action = function() {
+            that.session.delete();
+        };
+        return this._restart_kernel(shutdown_options);
+    };
+
     Notebook.prototype.restart_kernel = function (options) {
         var that = this;
         var restart_options = {};
         restart_options.confirm = (options || {}).confirm;
         restart_options.dialog = {
-            title : "Restart kernel?",
+            title : i18n.msg._("Restart kernel?"),
             body : $("<p/>").text(
-                'Do you want to restart the current kernel?  All variables will be lost.'
+                i18n.msg._('Do you want to restart the current kernel?  All variables will be lost.')
             ),
             buttons : {
                 "Restart" : {
@@ -2199,11 +2362,14 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 that.events.one('kernel_ready.Kernel', resolve_promise);
             }, reject_promise);
         }
-        
-        if (options.confirm === false) {
+
+        var do_kernel_action = options.kernel_action || restart_and_resolve;
+       
+        // no need to confirm if the kernel is not connected
+        if (options.confirm === false || !that.kernel.is_connected()) {
             var default_button = options.dialog.buttons[Object.keys(options.dialog.buttons)[0]];
             promise.then(default_button.click);
-            restart_and_resolve();
+            do_kernel_action();
             return promise;
         }
         options.dialog.notebook = this;
@@ -2218,7 +2384,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             var click = button.click;
             button.click = function () {
                 promise.then(click);
-                restart_and_resolve();
+                do_kernel_action();
             };
         });
         options.dialog.buttons = buttons;
@@ -2565,16 +2731,26 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             return this.contents.get(this.notebook_path, {content: false}).then(
                 function (data) {
                     var last_modified = new Date(data.last_modified);
-                    if (last_modified > that.last_modified) {
+                    // We want to check last_modified (disk) > that.last_modified (our last save)
+                    // In some cases the filesystem reports an inconsistent time,
+                    // so we allow 0.5 seconds difference before complaining.
+                    if ((last_modified.getTime() - that.last_modified.getTime()) > 500) {  // 500 ms
                         console.warn("Last saving was done on `"+that.last_modified+"`("+that._last_modified+"), "+
                                     "while the current file seem to have been saved on `"+data.last_modified+"`");
-                        dialog.modal({
+                        if (that._changed_on_disk_dialog !== null) {
+                            // update save callback on the confirmation button
+                            that._changed_on_disk_dialog.find('.save-confirm-btn').click(_save);
+                            // redisplay existing dialog
+                            that._changed_on_disk_dialog.modal('show');
+                        } else {
+                          // create new dialog
+                          that._changed_on_disk_dialog = dialog.modal({
                             notebook: that,
                             keyboard_manager: that.keyboard_manager,
-                            title: "Notebook changed",
-                            body: "The notebook file has changed on disk since the last time we opened or saved it. "+
-                                  "Do you want to overwrite the file on disk with the version open here, or load "+
-                                  "the version on disk (reload the page) ?",
+                            title: i18n.msg._("Notebook changed"),
+                            body: i18n.msg._("The notebook file has changed on disk since the last time we opened or saved it. "
+                                  + "Do you want to overwrite the file on disk with the version open here, or load "
+                                  + "the version on disk (reload the page)?"),
                             buttons: {
                                 Reload: {
                                     class: 'btn-warning',
@@ -2584,13 +2760,14 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                                 },
                                 Cancel: {},
                                 Overwrite: {
-                                    class: 'btn-danger',
+                                    class: 'btn-danger save-confirm-btn',
                                     click: function () {
                                         _save();
                                     }
                                 },
                             }
-                        });
+                          });
+                        }
                     } else {
                         return _save();
                     }
@@ -2618,12 +2795,12 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         if (data.message) {
             // save succeeded, but validation failed.
             var body = $("<div>");
-            var title = "Notebook validation failed";
+            var title = i18n.msg._("Notebook validation failed");
 
             body.append($("<p>").text(
-                "The save operation succeeded," +
+                i18n.msg._("The save operation succeeded," +
                 " but the notebook does not appear to be valid." +
-                " The validation error was:"
+                " The validation error was:")
             )).append($("<div>").addClass("validation-error").append(
                 $("<pre>").text(data.message)
             ));
@@ -2672,25 +2849,19 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      */
     Notebook.prototype.trust_notebook = function () {
         var body = $("<div>").append($("<p>")
-            .text("A trusted Jupyter notebook may execute hidden malicious code ")
-            .append($("<strong>")
-                .append(
-                    $("<em>").text("when you open it")
-                )
-            ).append(".").append(
-                " Selecting trust will immediately reload this notebook in a trusted state."
-            ).append(
-                " For more information, see the "
-            ).append($("<a>").attr("href", "http://ipython.org/ipython-doc/2/notebook/security.html")
-                .text("Jupyter security documentation")
-            ).append(".")
+            .text(i18n.msg._("A trusted Jupyter notebook may execute hidden malicious code when you open it. " +
+                    "Selecting trust will immediately reload this notebook in a trusted state. " +
+                    "For more information, see the Jupyter security documentation: "))
+            .append($("<a>").attr("href", "https://jupyter-notebook.readthedocs.io/en/latest/security.html")
+                .text(i18n.msg._("here"))
+            )
         );
 
         var nb = this;
         dialog.modal({
             notebook: this,
             keyboard_manager: this.keyboard_manager,
-            title: "Trust this notebook?",
+            title: i18n.msg._("Trust this notebook?"),
             body: body,
 
             buttons: {
@@ -2705,10 +2876,24 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                                 cell.output_area.trusted = true;
                             }
                         }
-                        nb.events.on('notebook_saved.Notebook', function () {
-                            window.location.reload();
+                        // If its write only and dirty, save before 
+                        // trusting
+                        var pr;
+                        if(nb.writable && nb.dirty) {
+                            pr = nb.save_notebook();
+                        }
+                        else {
+                            pr = Promise.resolve();
+                        }
+                        return pr.then(function() {                            
+                            nb.contents.trust(nb.notebook_path)
+                            .then(function(res) {
+                                nb.events.trigger("trust_changed.Notebook", true);
+                                window.location.reload();
+                            }, function(err) {
+                                console.log(err);
+                            });
                         });
-                        nb.save_notebook();
                     }
                 }
             }
@@ -2816,31 +3001,31 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             this.fromJSON(data);
         } catch (e) {
             failed = e;
-            console.log("Notebook failed to load from JSON:", e);
+            console.error("Notebook failed to load from JSON:", e);
         }
         if (failed || data.message) {
             // *either* fromJSON failed or validation failed
             var body = $("<div>");
             var title;
             if (failed) {
-                title = "Notebook failed to load";
+                title = i18n.msg._("Notebook failed to load");
                 body.append($("<p>").text(
-                    "The error was: "
+                    i18n.msg._("The error was: ")
                 )).append($("<div>").addClass("js-error").text(
                     failed.toString()
                 )).append($("<p>").text(
-                    "See the error console for details."
+                    i18n.msg._("See the error console for details.")
                 ));
             } else {
-                title = "Notebook validation failed";
+                title = i18n.msg._("Notebook validation failed");
             }
 
             if (data.message) {
                 if (failed) {
-                    msg = "The notebook also failed validation:";
+                    msg = i18n.msg._("The notebook also failed validation:");
                 } else {
-                    msg = "An invalid notebook may not function properly." +
-                    " The validation error was:";
+                    msg = i18n.msg._("An invalid notebook may not function properly." +
+                    " The validation error was:");
                 }
                 body.append($("<p>").text(
                     msg
@@ -2878,29 +3063,32 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         var orig_nbformat = nbmodel.metadata.orig_nbformat;
         var orig_nbformat_minor = nbmodel.metadata.orig_nbformat_minor;
         if (orig_nbformat !== undefined && nbmodel.nbformat !== orig_nbformat) {
-            var src;
+            var oldmsg = i18n.msg._("This notebook has been converted from an older notebook format" +
+            " to the current notebook format v(%s).");
+            var newmsg = i18n.msg._("This notebook has been converted from a newer notebook format" +
+            " to the current notebook format v(%s).");
             if (nbmodel.nbformat > orig_nbformat) {
-                src = " an older notebook format ";
+                msg = i18n.msg.sprintf(oldmsg,nbmodel.nbformat);
             } else {
-                src = " a newer notebook format ";
+                msg = i18n.msg.sprintf(newmsg,nbmodel.nbformat);
             }
+            msg += " ";
+            msg += i18n.msg._("The next time you save this notebook, the " +
+            "current notebook format will be used.");
             
-            msg = "This notebook has been converted from" + src +
-            "(v"+orig_nbformat+") to the current notebook " +
-            "format (v"+nbmodel.nbformat+"). The next time you save this notebook, the " +
-            "current notebook format will be used.";
-            
+            msg += " ";
             if (nbmodel.nbformat > orig_nbformat) {
-                msg += " Older versions of Jupyter may not be able to read the new format.";
+                msg += i18n.msg._("Older versions of Jupyter may not be able to read the new format.");
             } else {
-                msg += " Some features of the original notebook may not be available.";
+                msg += i18n.msg._("Some features of the original notebook may not be available.");
             }
-            msg += " To preserve the original version, close the " +
-                "notebook without saving it.";
+            msg += " ";
+            msg += i18n.msg._("To preserve the original version, close the " +
+                "notebook without saving it.");
             dialog.modal({
                 notebook: this,
                 keyboard_manager: this.keyboard_manager,
-                title : "Notebook converted",
+                title : i18n.msg._("Notebook converted"),
                 body : msg,
                 buttons : {
                     OK : {
@@ -2922,7 +3110,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 // compat with IJulia, IHaskell, and other early kernels
                 // adopters that where setting a language metadata.
                 this.kernel_selector.set_kernel({
-                    name: "(No name)",
+                    name: i18n.msg._("(No name)"),
                     language: this.metadata.language
                   });
                 // this should be stored in kspec now, delete it.
@@ -2970,9 +3158,9 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         var msg;
         if (error.name === utils.XHR_ERROR && error.xhr.status === 500) {
             utils.log_ajax_error(error.xhr, error.xhr_status, error.xhr_error);
-            msg = "An unknown error occurred while loading this notebook. " +
-            "This version can load notebook formats " +
-            "v" + this.nbformat + " or earlier. See the server log for details.";
+            msg = i18n.msg.sprintf(i18n.msg._("An unknown error occurred while loading this notebook. " +
+            "This version can load notebook formats %s or earlier. See the server log for details.",
+            "v" + this.nbformat));
         } else {
             msg = error.message;
             console.warn('Error stack trace while loading notebook was:');
@@ -2981,7 +3169,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         dialog.modal({
             notebook: this,
             keyboard_manager: this.keyboard_manager,
-            title: "Error loading notebook",
+            title: i18n.msg._("Error loading notebook"),
             body : msg,
             buttons : {
                 "OK": {}
@@ -3082,15 +3270,13 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         }
         var body = $('<div/>').append(
             $('<p/>').addClass("p-space").text(
-                "Are you sure you want to revert the notebook to " +
-                "the latest checkpoint?"
+                i18n.msg._("Are you sure you want to revert the notebook to " +
+                "the latest checkpoint?")
             ).append(
-                $("<strong/>").text(
-                    " This cannot be undone."
-                )
+                $("<strong/>").text(" "+i18n.msg._("This cannot be undone."))
             )
         ).append(
-            $('<p/>').addClass("p-space").text("The checkpoint was last updated at:")
+            $('<p/>').addClass("p-space").text(i18n.msg._("The checkpoint was last updated at:"))
         ).append(
             $('<p/>').addClass("p-space").text(
                 moment(checkpoint.last_modified).format('LLLL') +
@@ -3101,7 +3287,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         dialog.modal({
             notebook: this,
             keyboard_manager: this.keyboard_manager,
-            title : "Revert notebook to checkpoint",
+            title : i18n.msg._("Revert notebook to checkpoint"),
             body : body,
             default_button: "Cancel",
             buttons : {
@@ -3164,3 +3350,5 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         this.load_notebook(this.notebook_path);
     };
 
+    return {Notebook: Notebook};
+})

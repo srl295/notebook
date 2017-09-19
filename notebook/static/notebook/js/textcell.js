@@ -2,7 +2,9 @@
 // Distributed under the terms of the Modified BSD License.
 
 define([
+    'jquery',
     'base/js/utils',
+    'base/js/i18n',
     'notebook/js/cell',
     'base/js/security',
     'services/config',
@@ -13,7 +15,9 @@ define([
     'codemirror/mode/gfm/gfm',
     'notebook/js/codemirror-ipythongfm'
 ], function(
+    $,
     utils,
+    i18n,
     cell,
     security,
     configmod,
@@ -25,6 +29,8 @@ define([
     ipgfm
     ) {
     "use strict";
+    function encodeURIandParens(uri){return encodeURI(uri).replace('(','%28').replace(')','%29')}
+
     var Cell = cell.Cell;
 
     var TextCell = function (options) {
@@ -54,9 +60,8 @@ define([
         this.notebook = options.notebook;
         
         // we cannot put this as a class key as it has handle to "this".
-        var config = utils.mergeopt(TextCell, this.config);
         Cell.apply(this, [{
-                    config: config, 
+                    config: options.config, 
                     keyboard_manager: options.keyboard_manager, 
                     events: this.events}]);
 
@@ -102,6 +107,7 @@ define([
             if (that.keyboard_manager) {
                 that.keyboard_manager.enable();
             }
+            that.code_mirror.setOption('readOnly', !that.is_editable());
         });
         this.code_mirror.on('keydown', $.proxy(this.handle_keyevent,this))
         // The tabindex=-1 makes this div focusable.
@@ -121,7 +127,7 @@ define([
          * Add a new attachment to this cell
          */
         this.attachments[key] = {};
-        this.attachments[key][mime_type] = [b64_data];
+        this.attachments[key][mime_type] = b64_data;
     };
 
     TextCell.prototype.select = function () {
@@ -204,7 +210,7 @@ define([
                 // to this state, instead of a blank cell
                 this.code_mirror.clearHistory();
                 // TODO: This HTML needs to be treated as potentially dangerous
-                // user input and should be handled before set_rendered.         
+                // user input and should be handled before set_rendered.
                 this.set_rendered(data.rendered || '');
                 this.rendered = false;
                 this.render();
@@ -235,8 +241,8 @@ define([
                 // Garbage collect unused attachments : The general idea is to
                 // render the text, and find used attachments like when we
                 // substitute them in render()
-                data.attachments = {};
                 var that = this;
+                data.attachments = {};
                 // To find attachments, rendering to HTML is easier than
                 // searching in the markdown source for the multiple ways you
                 // can reference an image in markdown (using []() or a
@@ -248,7 +254,7 @@ define([
                     html.find('img[src^="attachment:"]').each(function (i, h) {
                         h = $(h);
                         var key = h.attr('src').replace(/^attachment:/, '');
-                        if (key in that.attachments) {
+                        if (that.attachments.hasOwnProperty(key)) {
                             data.attachments[key] = JSON.parse(JSON.stringify(
                                 that.attachments[key]));
                         }
@@ -258,6 +264,12 @@ define([
                         h.attr('src', '');
                     });
                 });
+                if (data.attachments.length === 0) {
+                    // omit attachments dict if no attachments
+                    delete data.attachments;
+                }
+            } else {
+                data.attachments = JSON.parse(JSON.stringify(this.attachments));
             }
         }
         return data;
@@ -277,10 +289,10 @@ define([
          *          notebook: Notebook instance
          */
         options = options || {};
-        var config = utils.mergeopt(MarkdownCell, {});
+        var config_default = utils.mergeopt(TextCell, MarkdownCell.options_default);
         this.class_config = new configmod.ConfigWithDefaults(options.config,
-                                            {}, 'MarkdownCell');
-        TextCell.apply(this, [$.extend({}, options, {config: config})]);
+                                            config_default, 'MarkdownCell');
+        TextCell.apply(this, [$.extend({}, options, {config: options.config})]);
 
         this.cell_type = 'markdown';
 
@@ -313,7 +325,7 @@ define([
     };
 
     MarkdownCell.prototype.select = function () {
-        var cont = TextCell.prototype.select.apply(this);
+        var cont = TextCell.prototype.select.apply(this, arguments);
         if (cont) {
             this.notebook.set_insert_image_enabled(!this.rendered);
         }
@@ -339,12 +351,12 @@ define([
          */
         var that = this;
         var pos = this.code_mirror.getCursor();
-        var reader = new FileReader;
+        var reader = new FileReader();
         // We can get either a named file (drag'n'drop) or a blob (copy/paste)
         // We generate names for blobs
         var key;
         if (blob.name !== undefined) {
-            key = blob.name;
+            key = encodeURIandParens(blob.name);
         } else {
             key = '_auto_' + Object.keys(that.attachments).length;
         }
@@ -357,7 +369,7 @@ define([
                             'type (' + d[0] + ')');
             }
             that.add_attachment(key, blob.type, d[1]);
-            var img_md = '![attachment:' + key + '](attachment:' + key + ')';
+            var img_md = '![' + key + '](attachment:' + key + ')';
             that.code_mirror.replaceRange(img_md, pos);
         }
         reader.readAsDataURL(blob);
@@ -381,7 +393,15 @@ define([
             var text_and_math = mathjaxutils.remove_math(text);
             text = text_and_math[0];
             math = text_and_math[1];
-            marked(text, function (err, html) {
+            // Prevent marked from returning inline styles for table cells
+            var renderer = new marked.Renderer();
+            renderer.tablecell = function (content, flags) {
+              var type = flags.header ? 'th' : 'td';
+              var start_tag = '<' + type + '>';
+              var end_tag = '</' + type + '>\n';
+              return start_tag + content + end_tag;
+            };
+            marked(text, { renderer: renderer }, function (err, html) {
                 html = mathjaxutils.replace_math(html, math);
                 html = security.sanitize_html(html);
                 html = $($.parseHTML(html));
@@ -408,10 +428,10 @@ define([
                   h = $(h);
                   var key = h.attr('src').replace(/^attachment:/, '');
 
-                  if (key in that.attachments) {
+                  if (that.attachments.hasOwnProperty(key)) {
                     var att = that.attachments[key];
                     var mime = Object.keys(att)[0];
-                    h.attr('src', 'data:' + mime + ';base64,' + att[mime][0]);
+                    h.attr('src', 'data:' + mime + ';base64,' + att[mime]);
                   } else {
                     h.attr('src', '');
                   }
@@ -525,24 +545,20 @@ define([
          *          notebook: Notebook instance
          */
         options = options || {};
-        var config = utils.mergeopt(RawCell, {});
-        TextCell.apply(this, [$.extend({}, options, {config: config})]);
-
+        var config_default = utils.mergeopt(TextCell, RawCell.options_default);
         this.class_config = new configmod.ConfigWithDefaults(options.config,
-                                            RawCell.config_defaults, 'RawCell');
+                                            config_default, 'RawCell');
+        TextCell.apply(this, [$.extend({}, options, {config: options.config})]);
         this.cell_type = 'raw';
     };
 
     RawCell.options_default = {
-        placeholder : "Write raw LaTeX or other formats here, for use with nbconvert. " +
-            "It will not be rendered in the notebook. " + 
-            "When passing through nbconvert, a Raw Cell's content is added to the output unmodified."
-    };
-    
-    RawCell.config_defaults =  {
         highlight_modes : {
             'diff'         :{'reg':[/^diff/]}
         },
+        placeholder : i18n.msg._("Write raw LaTeX or other formats here, for use with nbconvert. " +
+            "It will not be rendered in the notebook. " +
+            "When passing through nbconvert, a Raw Cell's content is added to the output unmodified."),
     };
 
     RawCell.prototype = Object.create(TextCell.prototype);

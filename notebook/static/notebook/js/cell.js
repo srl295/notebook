@@ -10,12 +10,15 @@
 
 
 define([
+    'jquery',
     'base/js/utils',
+    'base/js/i18n',
     'codemirror/lib/codemirror',
     'codemirror/addon/edit/matchbrackets',
     'codemirror/addon/edit/closebrackets',
-    'codemirror/addon/comment/comment'
-], function(utils, CodeMirror, cm_match, cm_closeb, cm_comment) {
+    'codemirror/addon/comment/comment',
+    'services/config',
+], function($, utils, i18n, CodeMirror, cm_match, cm_closeb, cm_comment, configmod) {
     "use strict";
     
     var overlayHack = CodeMirror.scrollbarModel.native.prototype.overlayHack;
@@ -48,10 +51,9 @@ define([
         options = options || {};
         this.keyboard_manager = options.keyboard_manager;
         this.events = options.events;
-        var config = utils.mergeopt(Cell, options.config);
+        var config = options.config;
         // superclass default overwrite our default
         
-        this.placeholder = config.placeholder || '';
         this.selected = false;
         this.anchor = false;
         this.rendered = false;
@@ -74,7 +76,7 @@ define([
         // backward compat.
         Object.defineProperty(this, 'cm_config', {
             get: function() {
-                console.warn("Warning: accessing Cell.cm_config directly is deprecated.");
+                console.warn(i18n.msg._("Warning: accessing Cell.cm_config directly is deprecated."));
                 return that._options.cm_config;
             },
         });
@@ -82,14 +84,21 @@ define([
         // load this from metadata later ?
         this.user_highlight = 'auto';
 
-
-        var _local_cm_config = {};
-        if(this.class_config){
-            _local_cm_config = this.class_config.get_sync('cm_config');
+        // merge my class-specific config data with general cell-level config
+        var class_config_data = {};
+        if (this.class_config) {
+            class_config_data = this.class_config.get_sync();
         }
-        config.cm_config = utils.mergeopt({}, config.cm_config, _local_cm_config);
+
+        var cell_config = new configmod.ConfigWithDefaults(options.config,
+            Cell.options_default, 'Cell');
+        var cell_config_data = cell_config.get_sync();
+
+        // this._options is a merge of SomeCell and Cell config data:
+        this._options = utils.mergeopt({}, cell_config_data, class_config_data);
+        this.placeholder = this._options.placeholder || '';
+
         this.cell_id = utils.uuid();
-        this._options = config;
 
         // For JS VM engines optimization, attributes should be all set (even
         // to null) in the constructor, and if possible, if different subclass
@@ -125,8 +134,8 @@ define([
                 "Cmd-Left": "goLineLeft",
                 "Tab": "indentMore",
                 "Shift-Tab" : "indentLess",
-                "Cmd-Alt-[" : "indentAuto",
-                "Ctrl-Alt-[" : "indentAuto",
+                // "Cmd-Alt-[" : "indentAuto",
+                // "Ctrl-Alt-[" : "indentAuto",
                 "Cmd-/" : "toggleComment",
                 "Ctrl-/" : "toggleComment",
             }
@@ -195,6 +204,7 @@ define([
         });
         if (this.code_mirror) {
             this.code_mirror.on("change", function(cm, change) {
+                that.events.trigger("change.Cell", {cell: that, change: change});
                 that.events.trigger("set_dirty.Notebook", {value: true});
             });
         }
@@ -482,6 +492,15 @@ define([
         var data = {};
         // deepcopy the metadata so copied cells don't share the same object
         data.metadata = JSON.parse(JSON.stringify(this.metadata));
+        if (data.metadata.deletable) {
+            delete data.metadata.deletable;
+        }
+        if (data.metadata.editable) {
+            delete data.metadata.editable;
+        }
+        if (data.metadata.collapsed === false) {
+            delete data.metadata.collapsed;
+        }
         data.cell_type = this.cell_type;
         return data;
     };
@@ -499,6 +518,7 @@ define([
 
     /**
      * can the cell be split into two cells (false if not deletable)
+     *
      * @method is_splittable
      **/
     Cell.prototype.is_splittable = function () {
@@ -515,14 +535,28 @@ define([
     };
 
     /**
-     * is the cell deletable? only false (undeletable) if
-     * metadata.deletable is explicitly false -- everything else
+     * is the cell edtitable? only false (readonly) if
+     * metadata.editable is explicitly false -- everything else
      * counts as true
+     *
+     * @method is_editable
+     **/
+    Cell.prototype.is_editable = function () {
+        if (this.metadata.editable === false) {
+            return false;
+        }
+        return true;
+    };
+
+    /**
+     * is the cell deletable? only false (undeletable) if
+     * metadata.deletable is explicitly false or if the cell is not
+     * editable -- everything else counts as true
      *
      * @method is_deletable
      **/
     Cell.prototype.is_deletable = function () {
-        if (this.metadata.deletable === false) {
+        if (this.metadata.deletable === false || !this.is_editable()) {
             return false;
         }
         return true;
@@ -726,7 +760,7 @@ define([
         } else {
             data.metadata = this.metadata;
         }
-        this.element.find('.inner_cell').find("a").text("Unrecognized cell type: " + data.cell_type);
+        this.element.find('.inner_cell').find("a").text(i18n.msg.sprintf(i18n.msg._("Unrecognized cell type: %s"), data.cell_type));
     };
     
     UnrecognizedCell.prototype.create_element = function () {
@@ -740,7 +774,7 @@ define([
         inner_cell.append(
             $("<a>")
                 .attr("href", "#")
-                .text("Unrecognized cell type")
+                .text(i18n.msg._("Unrecognized cell type"))
         );
         cell.append(inner_cell);
         this.element = cell;

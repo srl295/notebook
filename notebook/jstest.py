@@ -313,6 +313,7 @@ class JSController(TestController):
             '-m', 'notebook',
             '--no-browser',
             '--notebook-dir', self.nbdir.name,
+            '--NotebookApp.token=',
             '--NotebookApp.base_url=%s' % self.base_url,
         ]
         # ipc doesn't work on Windows, and darwin has crazy-long temp paths,
@@ -323,8 +324,6 @@ class JSController(TestController):
         c.start()
         env = os.environ.copy()
         env.update(self.env)
-        if self.engine == 'phantomjs':
-            env['IPYTHON_ALLOW_DRAFT_WEBSOCKETS_FOR_PHANTOMJS'] = '1'
         self.server = subprocess.Popen(command,
             stdout = c.writefd,
             stderr = subprocess.STDOUT,

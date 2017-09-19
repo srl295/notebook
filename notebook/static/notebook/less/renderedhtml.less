@@ -26,12 +26,18 @@
     h6:first-child {margin-top: 1em;}
 
     ul:not(.list-inline),
-    ol:not(.list-inline) {margin: 0em 2em; padding-left: 0px;}
+    ol:not(.list-inline) {padding-left: 2em;}
     ul {list-style:disc;}
-    ul ul {list-style:square;}
+    ul ul {
+      list-style:square;
+      margin-top: 0;
+    }
     ul ul ul {list-style:circle;}
     ol {list-style:decimal;}
-    ol ol {list-style:upper-alpha; }
+    ol ol {
+      list-style:upper-alpha; 
+      margin-top: 0;
+    }
     ol ol ol {list-style:lower-alpha; }
     ol ol ol ol {list-style:lower-roman; }
     /* any extras will just be numbers: */
@@ -44,14 +50,26 @@
         background-color: @rendered_html_border_color;
     }
 
-    pre {margin: 1em 2em;}
+    pre {
+        margin: 1em 2em;
+        padding: 0px;
+        background-color: @body-bg;
+    }
+
+    code {
+        background-color: #eff0f1;
+    }
+
+    p code {
+        padding: 1px 5px;
+    }
+
+    pre code {background-color: @body-bg;}
 
     pre, code {
-        border:             0;
-        background-color:   @body-bg;
-        color:              @text-color;
-        font-size:          100%;
-        padding:            0px;
+        border: 0;
+        color: @text-color;
+        font-size: 100%;
     }
 
     blockquote {margin: 1em 2em;}
@@ -59,20 +77,35 @@
     table {
         margin-left: auto;
         margin-right: auto;
-        border: 1px solid @rendered_html_border_color;
+        border: none;
         border-collapse: collapse;
+        border-spacing: 0;
+        color: @rendered_html_border_color;
+        font-size: 12px;
+        table-layout: fixed;
+    }
+    thead {
+        border-bottom: 1px solid @rendered_html_border_color;
+        vertical-align: bottom;
     }
     tr, th, td {
-        border: 1px solid @rendered_html_border_color;
-        border-collapse: collapse;
-        margin: 1em 2em;
-    }
-    td, th {
-        text-align: left;
+        text-align: right;
         vertical-align: middle;
-        padding: 4px;
+        padding: 0.5em 0.5em;
+        line-height: normal;
+        white-space: normal;
+        max-width: none;
+        border: none;
     }
-    th {font-weight: bold;}
+    th {
+        font-weight: bold;
+    }
+    tbody tr:nth-child(odd) {
+        background: #f5f5f5;
+    }
+    tbody tr:hover {
+        background: rgba(66, 165, 245, 0.2);
+    }
     * + table {margin-top: 1em;}
 
     p {text-align: left;}
@@ -97,3 +130,10 @@
     .alert {margin-bottom: initial;}
     * + .alert {margin-top: 1em;}
 }
+
+[dir="rtl"] .rendered_html {
+    p {
+        text-align : right;
+    }
+}
+

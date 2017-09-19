@@ -26,12 +26,12 @@ except ImportError: #PY2
 
 class NbconvertAPI(object):
     """Wrapper for nbconvert API calls."""
-    def __init__(self, base_url):
-        self.base_url = base_url
+    def __init__(self, request):
+        self.request = request
 
     def _req(self, verb, path, body=None, params=None):
-        response = requests.request(verb,
-                url_path_join(self.base_url, 'nbconvert', path),
+        response = self.request(verb,
+                url_path_join('nbconvert', path),
                 data=body, params=params,
         )
         response.raise_for_status()
@@ -55,11 +55,20 @@ b'\x08\xd7c\x90\xfb\xcf\x00\x00\x02\\\x01\x1e.~d\x87\x00\x00\x00\x00IEND\xaeB`\x
 
 class APITest(NotebookTestBase):
     def setUp(self):
-        nbdir = self.notebook_dir.name
+        nbdir = self.notebook_dir
         
         if not os.path.isdir(pjoin(nbdir, 'foo')):
-            os.mkdir(pjoin(nbdir, 'foo'))
-        
+            subdir = pjoin(nbdir, 'foo')
+
+            os.mkdir(subdir)
+
+            # Make sure that we clean this up when we're done.
+            # By using addCleanup this will happen correctly even if we fail
+            # later in setUp.
+            @self.addCleanup
+            def cleanup_dir():
+                shutil.rmtree(subdir, ignore_errors=True)
+
         nb = new_notebook()
         
         nb.cells.append(new_markdown_cell(u'Created by test ³'))
@@ -75,14 +84,8 @@ class APITest(NotebookTestBase):
                      encoding='utf-8') as f:
             write(nb, f, version=4)
 
-        self.nbconvert_api = NbconvertAPI(self.base_url())
+        self.nbconvert_api = NbconvertAPI(self.request)
 
-    def tearDown(self):
-        nbdir = self.notebook_dir.name
-
-        for dname in ['foo']:
-            shutil.rmtree(pjoin(nbdir, dname), ignore_errors=True)
-    
     @onlyif_cmds_exist('pandoc')
     def test_from_file(self):
         r = self.nbconvert_api.from_file('html', 'foo', 'testnb.ipynb')
@@ -115,8 +118,7 @@ class APITest(NotebookTestBase):
 
     @onlyif_cmds_exist('pandoc')
     def test_from_post(self):
-        nbmodel_url = url_path_join(self.base_url(), 'api/contents/foo/testnb.ipynb')
-        nbmodel = requests.get(nbmodel_url).json()
+        nbmodel = self.request('GET', 'api/contents/foo/testnb.ipynb').json()
         
         r = self.nbconvert_api.from_post(format='html', nbmodel=nbmodel)
         self.assertEqual(r.status_code, 200)
@@ -130,8 +132,7 @@ class APITest(NotebookTestBase):
 
     @onlyif_cmds_exist('pandoc')
     def test_from_post_zip(self):
-        nbmodel_url = url_path_join(self.base_url(), 'api/contents/foo/testnb.ipynb')
-        nbmodel = requests.get(nbmodel_url).json()
+        nbmodel = self.request('GET', 'api/contents/foo/testnb.ipynb').json()
 
         r = self.nbconvert_api.from_post(format='latex', nbmodel=nbmodel)
         self.assertIn(u'application/zip', r.headers['Content-Type'])

@@ -2,15 +2,17 @@
 // Distributed under the terms of the Modified BSD License.
 
 define([
+    'jquery',
     'base/js/namespace',
     'base/js/dialog',
     'base/js/utils',
+    'base/js/i18n',
     './celltoolbar',
     './tour',
     'moment',
-], function(IPython, dialog, utils, celltoolbar, tour, moment) {
+], function($, IPython, dialog, utils, i18n, celltoolbar, tour, moment) {
     "use strict";
-    
+
     var MenuBar = function (selector, options) {
         /**
          * Constructor
@@ -29,6 +31,7 @@ define([
          *          base_url : string
          *          notebook_path : string
          *          notebook_name : string
+         *          config: ConfigSection instance
          */
         options = options || {};
         this.base_url = options.base_url || utils.get_body_data("baseUrl");
@@ -40,6 +43,7 @@ define([
         this.save_widget = options.save_widget;
         this.quick_help = options.quick_help;
         this.actions = options.actions;
+        this.config = options.config;
 
         try {
             this.tour = new tour.Tour(this.notebook, this.events);
@@ -51,6 +55,7 @@ define([
         if (this.selector !== undefined) {
             this.element = $(selector);
             this.style();
+            this.add_bundler_items();
             this.bind_events();
         }
     };
@@ -66,6 +71,64 @@ define([
             }
         );
     };
+    
+    MenuBar.prototype.add_bundler_items = function() {
+        var that = this;
+        this.config.loaded.then(function() {
+            var bundlers = that.config.data.bundlerextensions;
+            if(bundlers) {
+                // Stable sort the keys to ensure menu items don't hop around
+                var ids = Object.keys(bundlers).sort()
+                ids.forEach(function(bundler_id) {
+                    var bundler = bundlers[bundler_id];
+                    var group = that.element.find('#'+bundler.group+'_menu')
+                    
+                    // Validate menu item metadata
+                    if(!group.length) {
+                        console.warn('unknown group', bundler.group, 'for bundler ID', bundler_id, '; skipping');
+                        return;
+                    } else if(!bundler.label) {
+                        console.warn('no label for bundler ID', bundler_id, '; skipping');
+                        return;
+                    }
+                    
+                    // Insert menu item into correct group, click handler
+                    group.parent().removeClass('hidden');
+                    var $li = $('<li>')
+                        .appendTo(group);
+                    $('<a>')
+                        .attr('href', '#')
+                        .text(bundler.label)
+                        .appendTo($li)
+                        .on('click', that._bundle.bind(that, bundler_id))
+                        .appendTo($li);
+                });
+            }
+        });
+    };
+
+    MenuBar.prototype._new_window = function(url) {
+        var w = window.open('', IPython._target);
+        if (this.notebook.dirty && this.notebook.writable) {
+            this.notebook.save_notebook().then(function() {
+                w.location = url;
+            });
+        } else {
+            w.location = url;
+        }
+    };
+    
+    MenuBar.prototype._bundle = function(bundler_id) {
+        // Read notebook path and base url here in case they change
+        var notebook_path = utils.encode_uri_components(this.notebook.notebook_path);
+        var url = utils.url_path_join(
+            this.base_url,
+            'bundle',
+            notebook_path
+        ) + '?bundler=' + utils.encode_uri_components(bundler_id);
+
+        this._new_window(url);
+    };
 
     MenuBar.prototype._nbconvert = function (format, download) {
         download = download || false;
@@ -77,14 +140,7 @@ define([
             notebook_path
         ) + "?download=" + download.toString();
         
-        var w = window.open('', IPython._target);
-        if (this.notebook.dirty && this.notebook.writable) {
-            this.notebook.save_notebook().then(function() {
-                w.location = url;
-            });
-        } else {
-            w.location = url;
-        }
+        this._new_window(url);
     };
 
     MenuBar.prototype._size_header = function() {
@@ -117,16 +173,15 @@ define([
         this.element.find('#download_ipynb').click(function () {
             var base_url = that.notebook.base_url;
             var notebook_path = utils.encode_uri_components(that.notebook.notebook_path);
-            var w = window.open('');
             var url = utils.url_path_join(
                 base_url, 'files', notebook_path
             ) + '?download=1';
             if (that.notebook.dirty && that.notebook.writable) {
                 that.notebook.save_notebook().then(function() {
-                    w.location = url;
+                    that._new_window(url);
                 });
             } else {
-                w.location = url;
+                that._new_window(url);
             }
         });
         
@@ -149,23 +204,26 @@ define([
         this.element.find('#download_pdf').click(function () {
             that._nbconvert('pdf', true);
         });
+        
+        this.element.find('#download_latex').click(function () {
+            that._nbconvert('latex', true);
+        });
 
         this.element.find('#download_script').click(function () {
             that._nbconvert('script', true);
         });
 
-
         this.events.on('trust_changed.Notebook', function (event, trusted) {
             if (trusted) {
                 that.element.find('#trust_notebook')
                     .addClass("disabled").off('click')
-                    .find("a").text("Trusted Notebook");
+                    .find("a").text(i18n.msg._("Trusted Notebook"));
             } else {
                 that.element.find('#trust_notebook')
                     .removeClass("disabled").on('click', function () {
                         that.notebook.trust_notebook();
                     })
-                    .find("a").text("Trust Notebook");
+                    .find("a").text(i18n.msg._("Trust Notebook"));
             }
         });
 
@@ -196,6 +254,7 @@ define([
             '#rename_notebook' : 'rename-notebook',
             '#find_and_replace' : 'find-and-replace',
             '#save_checkpoint': 'save-notebook',
+            '#shutdown_kernel': 'confirm-shutdown-kernel',
             '#restart_kernel': 'confirm-restart-kernel',
             '#restart_clear_output': 'confirm-restart-kernel-and-clear-output',
             '#restart_run_all': 'confirm-restart-kernel-and-run-all-cells',
@@ -211,6 +270,7 @@ define([
             '#move_cell_down': 'move-cell-down',
             '#toggle_header': 'toggle-header',
             '#toggle_toolbar': 'toggle-toolbar',
+            '#toggle_line_numbers': 'toggle-all-line-numbers',
             '#insert_cell_above': 'insert-cell-above',
             '#insert_cell_below': 'insert-cell-below',
             '#run_cell': 'run-cell',
@@ -232,6 +292,7 @@ define([
             '#copy_cell_attachments': 'copy-cell-attachments',
             '#paste_cell_attachments': 'paste-cell-attachments',
             '#insert_image': 'insert-image',
+            '#edit_keyboard_shortcuts' : 'edit-command-mode-keyboard-shortcuts',
         };
 
         for(var idx in id_actions_dict){
@@ -319,7 +380,7 @@ define([
         
         // Setup the existing presets
         var presets = celltoolbar.CellToolbar.list_presets();
-        preset_added(null, {name: "None"});
+        preset_added(null, {name: i18n.msg._("None")});
         presets.map(function (name) {
             preset_added(null, {name: name});
         });
@@ -342,7 +403,7 @@ define([
                 .addClass("disabled")
                 .append(
                     $("<a/>")
-                    .text("No checkpoints")
+                    .text(i18n.msg._("No checkpoints"))
                 )
             );
             return;
@@ -401,7 +462,7 @@ define([
             cursor.after($("<li>")
                 .append($("<a>")
                     .attr('target', '_blank')
-                    .attr('title', 'Opens in a new window')
+                    .attr('title', i18n.msg._('Opens in a new window'))
                     .attr('href', requirejs.toUrl(link.url))
                     .append($("<i>")
                         .addClass("fa fa-external-link menu-icon pull-right")

@@ -18,17 +18,6 @@ from notebook.base.handlers import (
 )
 
 
-def sort_key(model):
-    """key function for case-insensitive sort by name and type"""
-    iname = model['name'].lower()
-    type_key = {
-        'directory' : '0',
-        'notebook'  : '1',
-        'file'      : '2',
-    }.get(model['type'], '9')
-    return u'%s%s' % (type_key, iname)
-
-
 def validate_model(model, expect_content):
     """
     Validate a model returned by a ContentsManager method.
@@ -98,8 +87,8 @@ class ContentsHandler(APIHandler):
         self.set_header('Content-Type', 'application/json')
         self.finish(json.dumps(model, default=date_default))
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def get(self, path=''):
         """Return a model for a file or directory.
@@ -123,15 +112,11 @@ class ContentsHandler(APIHandler):
         model = yield gen.maybe_future(self.contents_manager.get(
             path=path, type=type, format=format, content=content,
         ))
-        if model['type'] == 'directory' and content:
-            # group listing by type, then by name (case-insensitive)
-            # FIXME: sorting should be done in the frontends
-            model['content'].sort(key=sort_key)
         validate_model(model, expect_content=content)
         self._finish_model(model, location=False)
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def patch(self, path=''):
         """PATCH renames a file or directory without re-uploading content."""
@@ -176,13 +161,15 @@ class ContentsHandler(APIHandler):
     @gen.coroutine
     def _save(self, model, path):
         """Save an existing file."""
-        self.log.info(u"Saving file at %s", path)
+        chunk = model.get("chunk", None) 
+        if not chunk or chunk == -1:  # Avoid tedious log information
+            self.log.info(u"Saving file at %s", path)  
         model = yield gen.maybe_future(self.contents_manager.save(model, path))
         validate_model(model, expect_content=False)
         self._finish_model(model)
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def post(self, path=''):
         """Create a new file in the specified path.
@@ -217,8 +204,8 @@ class ContentsHandler(APIHandler):
         else:
             yield self._new_untitled(path)
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def put(self, path=''):
         """Saves the file in the location specified by name and path.
@@ -243,8 +230,8 @@ class ContentsHandler(APIHandler):
         else:
             yield gen.maybe_future(self._new_untitled(path))
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def delete(self, path=''):
         """delete a file in the given path"""
@@ -257,8 +244,8 @@ class ContentsHandler(APIHandler):
 
 class CheckpointsHandler(APIHandler):
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def get(self, path=''):
         """get lists checkpoints for a file"""
@@ -267,8 +254,8 @@ class CheckpointsHandler(APIHandler):
         data = json.dumps(checkpoints, default=date_default)
         self.finish(data)
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def post(self, path=''):
         """post creates a new checkpoint"""
@@ -284,8 +271,8 @@ class CheckpointsHandler(APIHandler):
 
 class ModifyCheckpointsHandler(APIHandler):
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def post(self, path, checkpoint_id):
         """post restores a file from a checkpoint"""
@@ -294,8 +281,8 @@ class ModifyCheckpointsHandler(APIHandler):
         self.set_status(204)
         self.finish()
 
-    @web.authenticated
     @json_errors
+    @web.authenticated
     @gen.coroutine
     def delete(self, path, checkpoint_id):
         """delete clears a checkpoint for a given file"""
@@ -320,6 +307,17 @@ class NotebooksRedirectHandler(IPythonHandler):
     put = patch = post = delete = get
 
 
+class TrustNotebooksHandler(IPythonHandler):
+    """ Handles trust/signing of notebooks """
+
+    @json_errors
+    @web.authenticated
+    @gen.coroutine
+    def post(self,path=''):
+        cm = self.contents_manager
+        yield gen.maybe_future(cm.trust_notebook(path))
+        self.set_status(201)
+        self.finish()
 #-----------------------------------------------------------------------------
 # URL to handler mappings
 #-----------------------------------------------------------------------------
@@ -331,6 +329,7 @@ default_handlers = [
     (r"/api/contents%s/checkpoints" % path_regex, CheckpointsHandler),
     (r"/api/contents%s/checkpoints/%s" % (path_regex, _checkpoint_id_regex),
         ModifyCheckpointsHandler),
+    (r"/api/contents%s/trust" % path_regex, TrustNotebooksHandler),
     (r"/api/contents%s" % path_regex, ContentsHandler),
     (r"/api/notebooks/?(.*)", NotebooksRedirectHandler),
 ]

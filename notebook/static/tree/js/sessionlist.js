@@ -2,10 +2,13 @@
 // Distributed under the terms of the Modified BSD License.
 
 define([
+    'jquery',
     'base/js/utils',
-], function(utils) {
+    'bidi/bidi',
+], function($, utils, bidi) {
     "use strict";
 
+    var isRTL = bidi.isMirroringEnabled();
     var SesssionList = function (options) {
         /**
          * Constructor
@@ -35,7 +38,7 @@ define([
                     // to do the animation (borderSpacing).
                     $icon.animate({ borderSpacing: 90 }, {
                         step: function(now,fx) {
-                            $icon.css('transform','rotate(-' + now + 'deg)'); 
+                        	isRTL ? $icon.css('transform','rotate(' + now + 'deg)') : $icon.css('transform','rotate(-' + now + 'deg)');
                         }
                     }, 250);
                 } else {
@@ -43,7 +46,7 @@ define([
                     // See comment above.
                     $icon.animate({ borderSpacing: 0 }, {
                         step: function(now,fx) {
-                            $icon.css('transform','rotate(-' + now + 'deg)'); 
+                        	isRTL ? $icon.css('transform','rotate(' + now + 'deg)') : $icon.css('transform','rotate(-' + now + 'deg)'); 
                         }
                     }, 250);
                 }
@@ -62,7 +65,7 @@ define([
             error : utils.log_ajax_error,
         };
         var url = utils.url_path_join(this.base_url, 'api/sessions');
-        $.ajax(url, settings);
+        utils.ajax(url, settings);
     };
 
     SesssionList.prototype.sessions_loaded = function(data){
@@ -70,13 +73,18 @@ define([
         var len = data.length;
         var nb_path;
         for (var i=0; i<len; i++) {
-            nb_path = data[i].notebook.path;
-            this.sessions[nb_path] = {
-                id: data[i].id,
-                kernel: {
-                  name: data[i].kernel.name
-                }
-            };
+            // The classic notebook only knows about sessions for notebooks,
+            // but the server now knows about more general sessions for
+            // things like consoles.
+            if (data[i].type === 'notebook') {
+                nb_path = data[i].notebook.path;
+                this.sessions[nb_path] = {
+                    id: data[i].id,
+                    kernel: {
+                    name: data[i].kernel.name
+                    }
+                };
+            }
         }
         this.events.trigger('sessions_loaded.Dashboard', this.sessions);
     };

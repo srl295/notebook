@@ -55,7 +55,7 @@ from setupbase import (
     check_package_data_first,
     CompileCSS,
     CompileJS,
-    JavascriptDependencies,
+    Bower,
     JavascriptVersion,
     css_js_prerelease,
 )
@@ -72,13 +72,13 @@ share documents that contain live code, equations, visualizations, and
 explanatory text. The Notebook has support for multiple programming
 languages, sharing, and interactive widgets.
 
-Read `the documentation <https://jupyter-notebook.readthedocs.org>`_
+Read `the documentation <https://jupyter-notebook.readthedocs.io>`_
 for more information.
     """,
     version         = version,
     scripts         = glob(pjoin('scripts', '*')),
     packages        = find_packages(),
-    package_data     = find_package_data(),
+    package_data    = find_package_data(),
     author          = 'Jupyter Development Team',
     author_email    = 'jupyter@googlegroups.com',
     url             = 'http://jupyter.org',
@@ -119,7 +119,7 @@ setup_args['cmdclass'] = {
     'sdist' : css_js_prerelease(sdist, strict=True),
     'css' : CompileCSS,
     'js' : CompileJS,
-    'jsdeps' : JavascriptDependencies,
+    'jsdeps' : Bower,
     'jsversion' : JavascriptVersion,
 }
 
@@ -146,7 +146,7 @@ install_requires = [
     'jinja2',
     'tornado>=4',
     'ipython_genutils',
-    'traitlets',
+    'traitlets>=4.2.1',
     'jupyter_core',
     'jupyter_client',
     'nbformat',
@@ -156,15 +156,14 @@ install_requires = [
 extras_require = {
     ':sys_platform != "win32"': ['terminado>=0.3.3'],
     'test:python_version == "2.7"': ['mock'],
-    'test': ['nose', 'coverage', 'requests', 'nose_warnings_filters'],
+    'test': ['nose', 'coverage', 'requests', 'nose_warnings_filters', 'nbval'],
+    'test:sys_platform == "win32"': ['nose-exclude'],
 }
 
 if 'setuptools' in sys.modules:
     # setup.py develop should check for submodules
     from setuptools.command.develop import develop
     setup_args['cmdclass']['develop'] = css_js_prerelease(develop)
-    if not PY3:
-        setup_args['setup_requires'] = ['ipython_genutils']
 
     try:
         from wheel.bdist_wheel import bdist_wheel
@@ -182,6 +181,7 @@ if 'setuptools' in sys.modules:
             'jupyter-notebook = notebook.notebookapp:main',
             'jupyter-nbextension = notebook.nbextensions:main',
             'jupyter-serverextension = notebook.serverextensions:main',
+            'jupyter-bundlerextension = notebook.bundler.bundlerextensions:main',
         ]
     }
     setup_args.pop('scripts', None)

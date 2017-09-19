@@ -12,7 +12,7 @@ except ImportError: #PY2
     from base64 import decodestring as decodebytes
 
 
-from tornado import web
+from tornado import web, escape
 
 from notebook.base.handlers import IPythonHandler
 
@@ -26,6 +26,13 @@ class FilesHandler(IPythonHandler):
     @web.authenticated
     def get(self, path, include_body=True):
         cm = self.contents_manager
+
+        if cm.files_handler_class:
+            return cm.files_handler_class(self.application, self.request, path=cm.root_dir)._execute(
+                [t(self.request) for t in self.application.transforms],
+                path
+            )
+
         if cm.is_hidden(path):
             self.log.info("Refusing to serve hidden file, via 404 Error")
             raise web.HTTPError(404)
@@ -39,20 +46,22 @@ class FilesHandler(IPythonHandler):
         model = cm.get(path, type='file', content=include_body)
         
         if self.get_argument("download", False):
-            self.set_header('Content-Disposition','attachment; filename="%s"' % name)
+            self.set_attachment_header(name)
         
         # get mimetype from filename
         if name.endswith('.ipynb'):
-            self.set_header('Content-Type', 'application/json')
+            self.set_header('Content-Type', 'application/x-ipynb+json')
         else:
             cur_mime = mimetypes.guess_type(name)[0]
-            if cur_mime is not None:
+            if cur_mime == 'text/plain':
+                self.set_header('Content-Type', 'text/plain; charset=UTF-8')
+            elif cur_mime is not None:
                 self.set_header('Content-Type', cur_mime)
             else:
                 if model['format'] == 'base64':
                     self.set_header('Content-Type', 'application/octet-stream')
                 else:
-                    self.set_header('Content-Type', 'text/plain')
+                    self.set_header('Content-Type', 'text/plain; charset=UTF-8')
 
         if include_body:
             if model['format'] == 'base64':
